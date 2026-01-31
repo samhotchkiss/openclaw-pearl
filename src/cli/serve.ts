@@ -35,7 +35,14 @@ export async function runServe(options: ServeOptions): Promise<void> {
   const configPath = resolve(process.cwd(), options.config || 'pearl.yaml');
   console.log(`Loading config from: ${configPath}`);
   
-  const config = await loadConfig(configPath);
+  let config: Config;
+  try {
+    config = await loadConfig(configPath);
+  } catch (error) {
+    // If config file doesn't exist, use defaults
+    console.log('Config file not found, using defaults');
+    config = await loadConfig(); // Load defaults
+  }
 
   // Apply CLI overrides
   if (options.port) {
