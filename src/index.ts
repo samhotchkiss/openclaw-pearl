@@ -51,7 +51,10 @@ export type {
   MemoryRetrieverInterface,
 } from './memory/augmenter.js';
 
-// Future exports (to be implemented):
-// export { Pearl } from './pearl.js';
-// export { Router } from './routing/router.js';
-// export type { RoutingRule, Classification } from './routing/types.js';
+// Main Pearl orchestrator
+export { Pearl } from './pearl.js';
+
+// Routing exports
+export { ModelRouter } from './routing/router.js';
+export type { RoutingResult, RouterOptions } from './routing/router.js';
+export type { RequestClassification, RoutingRule } from './routing/types.js';
