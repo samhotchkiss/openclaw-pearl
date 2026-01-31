@@ -81,5 +81,13 @@ export function getDefaults(): Config {
       maxMessages: 100,
       minMessages: 2,
     },
+    rateLimit: {
+      maxRetries: 3,
+      baseDelayMs: 1000,
+      maxDelayMs: 30000,
+      failoverEnabled: true,
+      cooldownMs: 60000,
+      jitterFactor: 0.1,
+    },
   };
 }

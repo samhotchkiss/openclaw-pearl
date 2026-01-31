@@ -116,5 +116,5 @@ export interface Config {
   logging: LoggingConfig;
   caching: CachingConfig;
   sunrise?: SunriseConfig;
-  rateLimit?: RateLimitConfig;
+  rateLimit: RateLimitConfig;
 }

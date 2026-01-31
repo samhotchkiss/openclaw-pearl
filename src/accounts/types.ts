@@ -28,6 +28,12 @@ export interface AccountConfig {
   baseUrl?: string;
   /** Monthly budget in USD (optional - no limit if not set) */
   budgetMonthlyUsd?: number;
+  /** Whether account is enabled (defaults to true) */
+  enabled?: boolean;
+  /** Current month's usage in USD (defaults to 0) */
+  usageCurrentMonthUsd?: number;
+  /** Timestamp of last usage record */
+  lastUsedAt?: Date;
   /** Additional provider-specific options */
   options?: Record<string, unknown>;
 }

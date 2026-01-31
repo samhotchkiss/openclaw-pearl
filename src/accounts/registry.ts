@@ -38,8 +38,8 @@ export class AccountRegistry {
   register(config: AccountConfig): Account {
     const account: Account = {
       ...config,
-      usageCurrentMonthUsd: 0,
-      enabled: true,
+      usageCurrentMonthUsd: config.usageCurrentMonthUsd || 0,
+      enabled: config.enabled !== undefined ? config.enabled : true,
     };
     
     this.accounts.set(config.id, account);
@@ -65,6 +65,20 @@ export class AccountRegistry {
    */
   listByProvider(provider: string): Account[] {
     return this.list().filter(account => account.provider === provider);
+  }
+
+  /**
+   * Get all accounts
+   */
+  getAll(): Account[] {
+    return this.list();
+  }
+
+  /**
+   * Get all accounts by provider (async for interface compatibility)
+   */
+  async getAllByProvider(provider: string): Promise<Account[]> {
+    return this.listByProvider(provider);
   }
 
   /**
