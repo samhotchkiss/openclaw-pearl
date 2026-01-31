@@ -32,6 +32,17 @@ export interface PearlConfig {
   routing: RoutingConfig;
   backends: BackendsConfig;
   logging?: LoggingConfig;
+  sunrise?: SunriseConfig;
+}
+
+export interface SunriseConfig {
+  enabled: boolean;
+  transcriptPath: string;
+  model: string;
+  gapThresholdMs?: number;
+  lookbackMs?: number;
+  maxMessages?: number;
+  minMessages?: number;
 }
 
 export interface ServerConfig {

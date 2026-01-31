@@ -69,6 +69,16 @@ export interface LoggingConfig {
   file: string;
 }
 
+export interface SunriseConfig {
+  enabled: boolean;
+  transcriptPath: string;
+  model: string;
+  gapThresholdMs?: number;
+  lookbackMs?: number;
+  maxMessages?: number;
+  minMessages?: number;
+}
+
 export interface Config {
   server: ServerConfig;
   memory: MemoryConfig;
@@ -78,4 +88,5 @@ export interface Config {
   routing: RoutingConfig;
   backends: BackendsConfig;
   logging: LoggingConfig;
+  sunrise?: SunriseConfig;
 }

@@ -22,7 +22,14 @@ import type {
   ScoredMemory,
   ExtractedMemory,
   AugmentResult,
+  SunriseConfig,
 } from './types.js';
+import { 
+  SunriseService, 
+  createSunriseService,
+  TranscriptLogger,
+  type SunriseHandleResult 
+} from './sunrise/index.js';
 
 interface RequestMetadata {
   agentId: string;
@@ -47,6 +54,10 @@ export class Pearl {
   private augmenter!: PromptAugmenter;
   private router!: ModelRouter;
   private backends!: Map<string, BackendClient>;
+  
+  // Sunrise components
+  private sunriseService?: SunriseService;
+  private transcriptLogger?: TranscriptLogger;
   
   // Session tracking
   private sessionMemories = new Map<string, Set<string>>(); // sessionId -> Set<memoryId>
@@ -118,6 +129,25 @@ export class Pearl {
         this.backends.set('openrouter', createBackendClient('openrouter', this.config.backends.openrouter));
       }
 
+      // Initialize sunrise service if enabled
+      if (this.config.sunrise?.enabled) {
+        this.sunriseService = createSunriseService({
+          transcriptPath: this.config.sunrise.transcriptPath,
+          summary: {
+            provider: this.determineSunriseProvider(this.config.sunrise.model),
+            model: this.extractSunriseModel(this.config.sunrise.model),
+            apiKey: this.getSunriseApiKey(this.config.sunrise.model),
+            baseUrl: this.getSunriseBaseUrl(this.config.sunrise.model),
+          },
+          gapThresholdMs: this.config.sunrise.gapThresholdMs,
+          lookbackMs: this.config.sunrise.lookbackMs,
+          maxMessages: this.config.sunrise.maxMessages,
+          minMessages: this.config.sunrise.minMessages,
+        });
+        
+        this.transcriptLogger = new TranscriptLogger(this.config.sunrise.transcriptPath);
+      }
+
       // Start extraction worker if async extraction is enabled
       if (this.config.extraction.enabled && this.config.extraction.async) {
         this.startExtractionWorker();
@@ -158,8 +188,23 @@ export class Pearl {
         }
       }
 
-      // 3. Augment prompt with memories (includes retrieval)
-      const augmentedRequest = await this.augmentPrompt(request.messages, metadata.agentId, metadata.sessionId);
+      // 3. Handle sunrise session recovery (if enabled)
+      let messagesToAugment = request.messages;
+      let sunriseInjected = false;
+      
+      if (this.sunriseService && this.transcriptLogger) {
+        const sunriseResult = await this.handleSunriseRecovery(
+          metadata.agentId, 
+          metadata.sessionId, 
+          request.messages,
+          request.metadata?.forceSunrise
+        );
+        messagesToAugment = sunriseResult.messages;
+        sunriseInjected = sunriseResult.summaryInjected;
+      }
+
+      // 4. Augment prompt with memories (includes retrieval)
+      const augmentedRequest = await this.augmentPrompt(messagesToAugment, metadata.agentId, metadata.sessionId);
 
       // 5. Route to appropriate backend
       const routing = await this.routeRequest(augmentedRequest.messages, metadata.agentId);
@@ -187,6 +232,16 @@ export class Pearl {
             content: assistantResponse,
           };
           this.queueMemoryExtraction(metadata.agentId, metadata.sessionId, assistantMessage);
+        }
+        
+        // Log conversation to transcript for future sunrise recovery
+        if (chunk.choices?.[0]?.finishReason && this.transcriptLogger) {
+          await this.logConversationToTranscript(
+            metadata.agentId,
+            metadata.sessionId,
+            request.messages,
+            assistantResponse
+          );
         }
       }
 
@@ -351,6 +406,103 @@ export class Pearl {
     } catch (error) {
       console.error(`Memory extraction failed for agent ${item.agentId}:`, error);
     }
+  }
+
+  /**
+   * Handle sunrise session recovery
+   */
+  private async handleSunriseRecovery(
+    agentId: string,
+    sessionId: string,
+    messages: ChatMessage[],
+    forceSunrise?: boolean
+  ): Promise<SunriseHandleResult> {
+    if (!this.sunriseService) {
+      return { messages, summaryInjected: false };
+    }
+
+    const options = forceSunrise ? { forceSunrise: true } : {};
+    return await this.sunriseService.handleRequest(agentId, sessionId, messages, options);
+  }
+
+  /**
+   * Log conversation to transcript for future sunrise recovery
+   */
+  private async logConversationToTranscript(
+    agentId: string,
+    sessionId: string,
+    userMessages: ChatMessage[],
+    assistantResponse: string
+  ): Promise<void> {
+    if (!this.transcriptLogger) {
+      return;
+    }
+
+    try {
+      // Log user messages
+      for (const message of userMessages) {
+        if (message.role === 'user') {
+          await this.transcriptLogger.log(agentId, sessionId, {
+            role: 'user',
+            content: message.content,
+            timestamp: Date.now(),
+            messageId: uuidv7(),
+          });
+        }
+      }
+
+      // Log assistant response
+      if (assistantResponse.trim()) {
+        await this.transcriptLogger.log(agentId, sessionId, {
+          role: 'assistant',
+          content: assistantResponse,
+          timestamp: Date.now(),
+          messageId: uuidv7(),
+        });
+      }
+    } catch (error) {
+      console.error('Failed to log conversation to transcript:', error);
+    }
+  }
+
+  /**
+   * Helper methods for sunrise configuration
+   */
+  private determineSunriseProvider(model: string): 'ollama' | 'anthropic' | 'openai' {
+    if (model.startsWith('ollama/')) {
+      return 'ollama';
+    }
+    if (model.startsWith('openai/') || model.startsWith('gpt')) {
+      return 'openai';
+    }
+    return 'anthropic'; // default
+  }
+
+  private extractSunriseModel(model: string): string {
+    if (model.includes('/')) {
+      return model.split('/')[1];
+    }
+    return model;
+  }
+
+  private getSunriseApiKey(model: string): string | undefined {
+    if (model.startsWith('anthropic/')) {
+      return this.config.backends.anthropic?.apiKey;
+    }
+    if (model.startsWith('openai/') || model.startsWith('gpt')) {
+      return this.config.backends.openai?.apiKey;
+    }
+    return undefined;
+  }
+
+  private getSunriseBaseUrl(model: string): string | undefined {
+    if (model.startsWith('ollama/')) {
+      return this.config.backends.ollama?.baseUrl;
+    }
+    if (model.startsWith('openai/')) {
+      return this.config.backends.openai?.baseUrl;
+    }
+    return undefined;
   }
 
   /**

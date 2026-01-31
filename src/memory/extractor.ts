@@ -4,6 +4,7 @@
  */
 
 import type { MemoryType } from './store.js';
+import { ScopeDetector, type ScopeContext } from './scope-detector.js';
 
 // ====== Types ======
 
@@ -12,6 +13,11 @@ export interface ExtractedMemory {
   content: string;
   confidence: number;
   tags: string[];
+  // Scope detection fields
+  scope?: 'global' | 'agent' | 'inferred';
+  scope_confidence?: number;
+  target_agent_id?: string;
+  scope_reasoning?: string;
 }
 
 export interface ExtractionResult {
@@ -145,16 +151,18 @@ class DefaultLLMProvider implements LLMProvider {
 export class MemoryExtractor {
   private provider: LLMProvider;
   private minConfidence: number;
+  private scopeDetector: ScopeDetector;
 
-  constructor(config: LLMProviderConfig = {}, provider?: LLMProvider) {
+  constructor(config: LLMProviderConfig = {}, provider?: LLMProvider, scopeDetector?: ScopeDetector) {
     this.minConfidence = config.minConfidence ?? 0.7;
     this.provider = provider ?? new DefaultLLMProvider(config);
+    this.scopeDetector = scopeDetector ?? new ScopeDetector();
   }
 
   /**
    * Extract memories from a message
    */
-  async extract(message: string): Promise<ExtractionResult> {
+  async extract(message: string, context?: ScopeContext): Promise<ExtractionResult> {
     // Quick exit for trivial content
     if (this.isTrivial(message)) {
       return { memories: [] };
@@ -167,7 +175,10 @@ export class MemoryExtractor {
       // Validate and filter the response
       const validatedMemories = this.validateAndFilter(result.memories);
 
-      return { memories: validatedMemories };
+      // Add scope detection to each memory
+      const memoriesWithScope = await this.addScopeDetection(validatedMemories, message, context);
+
+      return { memories: memoriesWithScope };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       return { memories: [], error: errorMessage };
@@ -242,6 +253,42 @@ export class MemoryExtractor {
       }
 
       return true;
+    });
+  }
+
+  /**
+   * Add scope detection to extracted memories
+   */
+  private async addScopeDetection(
+    memories: ExtractedMemory[],
+    originalMessage: string,
+    context?: ScopeContext
+  ): Promise<ExtractedMemory[]> {
+    if (!context) {
+      // If no context provided, default to global scope
+      return memories.map(memory => ({
+        ...memory,
+        scope: 'global' as const,
+        scope_confidence: 0.5,
+        scope_reasoning: 'no context provided, defaulting to global',
+      }));
+    }
+
+    return memories.map(memory => {
+      // Detect scope for this specific memory
+      const scopeResult = this.scopeDetector.detectScope(
+        memory.content,
+        memory.type,
+        context
+      );
+
+      return {
+        ...memory,
+        scope: scopeResult.scope,
+        scope_confidence: scopeResult.confidence,
+        target_agent_id: scopeResult.targetAgentId,
+        scope_reasoning: scopeResult.reasoning,
+      };
     });
   }
 
