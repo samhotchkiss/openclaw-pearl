@@ -6,10 +6,22 @@ import type { TokenUsage } from '../backends/types.js';
 import type { CostConfig, ModelPricing, ICostCalculator } from './types.js';
 
 /**
- * Default cost configuration with current pricing as of 2024
+ * Default cost configuration with current pricing as of January 2026
  */
 export const DEFAULT_COST_CONFIG: CostConfig = {
   anthropic: {
+    // Claude 4 series (2026)
+    'claude-opus-4-20250514': {
+      inputCostPer1kTokens: 0.015,
+      outputCostPer1kTokens: 0.075,
+      cacheCostPer1kTokens: 0.0015
+    },
+    'claude-sonnet-4-20250514': {
+      inputCostPer1kTokens: 0.003,
+      outputCostPer1kTokens: 0.015,
+      cacheCostPer1kTokens: 0.0003
+    },
+    // Claude 3.5 series
     'claude-3-5-sonnet-20241022': {
       inputCostPer1kTokens: 0.003,
       outputCostPer1kTokens: 0.015,
@@ -20,6 +32,12 @@ export const DEFAULT_COST_CONFIG: CostConfig = {
       outputCostPer1kTokens: 0.015,
       cacheCostPer1kTokens: 0.0003
     },
+    'claude-3-5-haiku-20241022': {
+      inputCostPer1kTokens: 0.0008,
+      outputCostPer1kTokens: 0.004,
+      cacheCostPer1kTokens: 0.00008
+    },
+    // Claude 3 series
     'claude-3-sonnet-20240229': {
       inputCostPer1kTokens: 0.003,
       outputCostPer1kTokens: 0.015
@@ -32,11 +50,26 @@ export const DEFAULT_COST_CONFIG: CostConfig = {
       inputCostPer1kTokens: 0.00025,
       outputCostPer1kTokens: 0.00125
     },
-    // Legacy aliases
+    // Aliases
+    'claude-opus-4': {
+      inputCostPer1kTokens: 0.015,
+      outputCostPer1kTokens: 0.075,
+      cacheCostPer1kTokens: 0.0015
+    },
+    'claude-sonnet-4': {
+      inputCostPer1kTokens: 0.003,
+      outputCostPer1kTokens: 0.015,
+      cacheCostPer1kTokens: 0.0003
+    },
     'claude-3-5-sonnet': {
       inputCostPer1kTokens: 0.003,
       outputCostPer1kTokens: 0.015,
       cacheCostPer1kTokens: 0.0003
+    },
+    'claude-3-5-haiku': {
+      inputCostPer1kTokens: 0.0008,
+      outputCostPer1kTokens: 0.004,
+      cacheCostPer1kTokens: 0.00008
     },
     'claude-3-sonnet': {
       inputCostPer1kTokens: 0.003,
@@ -52,7 +85,23 @@ export const DEFAULT_COST_CONFIG: CostConfig = {
     }
   },
   openai: {
+    // GPT-5.x series (2026) - recommended for new workloads
+    'gpt-5.2': {
+      inputCostPer1kTokens: 0.005,
+      outputCostPer1kTokens: 0.015,
+      cacheCostPer1kTokens: 0.0005
+    },
+    'gpt-5.1': {
+      inputCostPer1kTokens: 0.003,
+      outputCostPer1kTokens: 0.012,
+      cacheCostPer1kTokens: 0.0003
+    },
+    // GPT-4o series - pinned versions (remain available post Feb 2026)
     'gpt-4o': {
+      inputCostPer1kTokens: 0.0025,
+      outputCostPer1kTokens: 0.01
+    },
+    'gpt-4o-2024-08-06': {
       inputCostPer1kTokens: 0.0025,
       outputCostPer1kTokens: 0.01
     },
@@ -60,6 +109,11 @@ export const DEFAULT_COST_CONFIG: CostConfig = {
       inputCostPer1kTokens: 0.00015,
       outputCostPer1kTokens: 0.0006
     },
+    'gpt-4o-mini-2024-07-18': {
+      inputCostPer1kTokens: 0.00015,
+      outputCostPer1kTokens: 0.0006
+    },
+    // Legacy GPT-4 series
     'gpt-4-turbo': {
       inputCostPer1kTokens: 0.01,
       outputCostPer1kTokens: 0.03
