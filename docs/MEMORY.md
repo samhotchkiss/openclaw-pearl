@@ -368,3 +368,75 @@ Merge related memories to reduce noise:
 4. **Local extraction:** Uses local LLM, not cloud API
 5. **Encryption (optional):** Can encrypt memory content at rest
 6. **Audit log:** Track all memory access
+
+## Multi-Agent Scope (Issue #35)
+
+While memories are namespace-isolated by default, some memories should be shared globally across all agents.
+
+### Scope Types
+
+| Scope | Description | Storage | Retrieval |
+|-------|-------------|---------|-----------|
+| `global` | Shared across all agents | `agent_id = "_global"` | All agents query global + own |
+| `agent` | Specific to one agent | `agent_id = "nova"` | Only that agent retrieves |
+| `inferred` | Scope determined at retrieval | Stored with best-guess | Semantic matching decides |
+
+### Scope Classification
+
+During extraction, classify scope based on:
+
+1. **Channel context**
+   - Main DM with owner → likely `global`
+   - Project channel (#proj-ai-updates) → likely `agent` for that project's agent
+   - Group chat → likely `global`
+
+2. **Content type**
+   - User preferences → usually `global`
+   - Task instructions → usually `agent`
+   - Facts about people → usually `global`
+   - Workflow rules → check for agent-specific keywords
+
+3. **Explicit keywords**
+   - "for all agents", "everyone should know" → `global`
+   - "just for Tex", "Nova should" → `agent`
+
+### Extraction Enhancement
+
+```typescript
+interface MemoryExtraction {
+  type: MemoryType;
+  content: string;
+  scope: "global" | "agent" | "inferred";
+  agentId?: string;  // If scope is "agent"
+  confidence: number;
+}
+```
+
+### Retrieval Logic
+
+```typescript
+async function retrieve(query: string, agentId: string): Promise<Memory[]> {
+  // Get global memories
+  const global = await searchMemories(query, { agentId: "_global" });
+  
+  // Get agent-specific memories
+  const agent = await searchMemories(query, { agentId });
+  
+  // Merge and deduplicate
+  return mergeAndRank([...global, ...agent]);
+}
+```
+
+### Examples
+
+**Global memories (all agents know):**
+- "Sam prefers dark mode"
+- "Essie's birthday is August 18"
+- "Sam is celiac"
+- "The office address is 1000 Cordova Place"
+
+**Agent-specific memories:**
+- "When writing blog posts, use casual tone" → `agent: "tex"`
+- "Focus on AI research papers, not product launches" → `agent: "nova"`
+- "Never trade more than $500 per position" → `agent: "trey"`
+- "Use sag for voice, not system TTS" → `agent: "main"`
