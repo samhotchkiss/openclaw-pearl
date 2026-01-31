@@ -165,3 +165,41 @@ export class RuleEngine {
     return true;
   }
 }
+
+/**
+ * Create RoutingRule array from config
+ */
+export function createRulesFromConfig(
+  rulesConfig: Array<{
+    name: string;
+    match: MatchConditions;
+    model: string;
+    priority: number;
+  }>,
+  defaultModel: string
+): RoutingRule[] {
+  const rules: RoutingRule[] = [];
+
+  // Add configured rules
+  for (const ruleConfig of rulesConfig) {
+    rules.push({
+      name: ruleConfig.name,
+      match: ruleConfig.match,
+      model: ruleConfig.model,
+      priority: ruleConfig.priority,
+    });
+  }
+
+  // Add default rule if not already present
+  const hasDefaultRule = rules.some(rule => rule.match.default === true);
+  if (!hasDefaultRule) {
+    rules.push({
+      name: 'default',
+      match: { default: true },
+      model: defaultModel,
+      priority: 0, // Lowest priority
+    });
+  }
+
+  return rules;
+}

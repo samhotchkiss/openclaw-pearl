@@ -2,6 +2,27 @@
  * Pearl configuration types
  */
 
+// Re-export types needed by Pearl class
+export type { 
+  ChatRequest, 
+  ChatChunk, 
+  Message, 
+  BackendClient 
+} from './backends/types.js';
+export type { 
+  ScoredMemory 
+} from './memory/retriever.js';
+export type { 
+  ExtractedMemory 
+} from './memory/extractor.js';
+export type { 
+  AugmentResult,
+  ChatMessage
+} from './memory/augmenter.js';
+export type { 
+  RoutingResult 
+} from './routing/router.js';
+
 export interface PearlConfig {
   server: ServerConfig;
   memory: MemoryConfig;
