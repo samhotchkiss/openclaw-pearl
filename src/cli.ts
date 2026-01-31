@@ -8,6 +8,7 @@ import { Command } from 'commander';
 import { serveCommand } from './cli/serve.js';
 import { memoryCommand } from './cli/memory.js';
 import { statsCommand } from './cli/stats.js';
+import { authCommand } from './cli/auth.js';
 
 export const program = new Command();
 
@@ -20,6 +21,7 @@ program
 program.addCommand(serveCommand);
 program.addCommand(memoryCommand);
 program.addCommand(statsCommand);
+program.addCommand(authCommand);
 
 // Only parse if this is the main module (not imported for testing)
 // Check if running as CLI (not being imported)
