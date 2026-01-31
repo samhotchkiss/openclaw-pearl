@@ -298,3 +298,16 @@ export interface ConfigValidationResult {
   errors: ValidationError[];
   warnings: ValidationError[];
 }
+
+export interface ChatRequest {
+  model: string;
+  messages: Array<{ role: string; content: string }>;
+  metadata?: {
+    agentId?: string;
+    sessionId?: string;
+    userId?: string;
+    isAdmin?: boolean;
+    timestamp?: number;
+    emergencyBypass?: string;
+  };
+}
