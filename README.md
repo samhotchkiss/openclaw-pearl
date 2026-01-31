@@ -140,7 +140,9 @@ npm run dev
 
 ## Roadmap
 
-See [GitHub Issues](https://github.com/samhotchkiss/openclaw-pearl/issues) for planned work.
+**[📋 Project Board](https://github.com/users/samhotchkiss/projects/1)** — Track progress on all issues
+
+See [GitHub Issues](https://github.com/samhotchkiss/openclaw-pearl/issues) for detailed specs.
 
 ## License
 
