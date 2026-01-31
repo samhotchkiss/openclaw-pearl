@@ -1,0 +1,66 @@
+# Example Pearl Configuration
+# Copy to pearl.yaml and customize as needed
+
+# Server configuration
+server:
+  port: ${PEARL_PORT:-8080}
+  host: ${PEARL_HOST:-0.0.0.0}
+  cors: true
+
+# Memory storage
+memory:
+  store: sqlite
+  path: ~/.pearl/memories.db
+
+# Memory extraction settings  
+extraction:
+  enabled: true
+  model: ${EXTRACTION_MODEL:-ollama/llama3.2:3b}
+  async: true
+  extract_from_assistant: false
+
+# Embedding configuration
+embedding:
+  provider: ollama
+  model: nomic-embed-text
+  dimensions: 768
+
+# Memory retrieval settings
+retrieval:
+  max_memories: 10
+  min_similarity: 0.7
+  token_budget: 500
+  recency_boost: true
+
+# Model routing configuration
+routing:
+  classifier: ollama/llama3.2:3b
+  default_model: anthropic/claude-sonnet-4-20250514
+  rules:
+    # Route sensitive content to local models
+    - match: { sensitive: true }
+      model: ollama/llama3.1:70b
+    
+    # Route code tasks to Claude Sonnet
+    - match: { type: code }
+      model: anthropic/claude-sonnet-4-20250514
+    
+    # Route simple queries to fast/cheap models
+    - match: { complexity: low }
+      model: anthropic/claude-3-5-haiku-20241022
+
+# Backend API configurations
+backends:
+  anthropic:
+    api_key: ${ANTHROPIC_API_KEY}
+  
+  openai:
+    api_key: ${OPENAI_API_KEY}
+  
+  ollama:
+    base_url: http://localhost:11434
+
+# Logging configuration
+logging:
+  level: info
+  file: ~/.pearl/pearl.log
