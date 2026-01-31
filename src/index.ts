@@ -7,6 +7,10 @@ export { MemoryStore } from './memory/store.js';
 export { MemoryExtractor, createProvider } from './memory/extractor.js';
 export { MemoryRetriever, estimateTokens } from './memory/retriever.js';
 export {
+  PromptAugmenter,
+  formatMemoriesForInjection,
+} from './memory/augmenter.js';
+export {
   EmbeddingService,
   OllamaEmbeddingProvider,
   OpenAIEmbeddingProvider,
@@ -38,6 +42,14 @@ export type {
   EmbeddingProvider,
   EmbeddingProviderConfig,
 } from './memory/embeddings.js';
+export type {
+  AugmentOptions,
+  AugmentResult,
+  SessionStats,
+  ChatMessage,
+  MessageRole,
+  MemoryRetrieverInterface,
+} from './memory/augmenter.js';
 
 // Future exports (to be implemented):
 // export { Pearl } from './pearl.js';

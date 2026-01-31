@@ -43,3 +43,14 @@ export {
   type RetrievalOptions,
   type RetrieverConfig,
 } from './retriever.js';
+
+export {
+  PromptAugmenter,
+  formatMemoriesForInjection,
+  type AugmentOptions,
+  type AugmentResult,
+  type SessionStats,
+  type ChatMessage,
+  type MessageRole,
+  type MemoryRetrieverInterface,
+} from './augmenter.js';
