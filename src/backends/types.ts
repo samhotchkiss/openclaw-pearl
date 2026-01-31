@@ -17,6 +17,7 @@ export interface ChatRequest {
   metadata?: {
     agentId?: string;
     sessionId?: string;
+    forceSunrise?: boolean;
     [key: string]: unknown;
   };
 }

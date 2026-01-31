@@ -65,5 +65,14 @@ export function getDefaults(): Config {
       level: 'info',
       file: '~/.pearl/pearl.log',
     },
+    sunrise: {
+      enabled: false,
+      transcriptPath: '~/.pearl/transcripts',
+      model: 'ollama/llama3.2:3b',
+      gapThresholdMs: 3600000, // 1 hour
+      lookbackMs: 7200000,     // 2 hours
+      maxMessages: 100,
+      minMessages: 2,
+    },
   };
 }

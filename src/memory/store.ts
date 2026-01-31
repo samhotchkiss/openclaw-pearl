@@ -22,6 +22,11 @@ export interface Memory {
   expires_at?: number;
   source_session?: string;
   source_message_id?: string;
+  // Scope detection fields
+  scope?: 'global' | 'agent' | 'inferred';
+  scope_confidence?: number;
+  target_agent_id?: string;
+  scope_reasoning?: string;
 }
 
 export type MemoryType =
@@ -43,6 +48,11 @@ export interface MemoryInput {
   expires_at?: number;
   source_session?: string;
   source_message_id?: string;
+  // Scope detection fields
+  scope?: 'global' | 'agent' | 'inferred';
+  scope_confidence?: number;
+  target_agent_id?: string;
+  scope_reasoning?: string;
 }
 
 export interface MemoryUpdate {
@@ -51,6 +61,11 @@ export interface MemoryUpdate {
   embedding?: number[];
   confidence?: number;
   expires_at?: number;
+  // Scope detection fields
+  scope?: 'global' | 'agent' | 'inferred';
+  scope_confidence?: number;
+  target_agent_id?: string;
+  scope_reasoning?: string;
 }
 
 export interface MemoryQuery {
@@ -87,6 +102,11 @@ interface DbRow {
   expires_at: number | null;
   source_session: string | null;
   source_message_id: string | null;
+  // Scope detection fields
+  scope: string | null;
+  scope_confidence: number | null;
+  target_agent_id: string | null;
+  scope_reasoning: string | null;
 }
 
 /**
@@ -145,6 +165,18 @@ function rowToMemory(row: DbRow): Memory {
   if (row.source_message_id) {
     memory.source_message_id = row.source_message_id;
   }
+  if (row.scope) {
+    memory.scope = row.scope as 'global' | 'agent' | 'inferred';
+  }
+  if (row.scope_confidence !== null) {
+    memory.scope_confidence = row.scope_confidence;
+  }
+  if (row.target_agent_id) {
+    memory.target_agent_id = row.target_agent_id;
+  }
+  if (row.scope_reasoning) {
+    memory.scope_reasoning = row.scope_reasoning;
+  }
 
   return memory;
 }
@@ -180,7 +212,11 @@ export class MemoryStore {
         access_count INTEGER DEFAULT 0,
         expires_at INTEGER,
         source_session TEXT,
-        source_message_id TEXT
+        source_message_id TEXT,
+        scope TEXT,
+        scope_confidence REAL,
+        target_agent_id TEXT,
+        scope_reasoning TEXT
       )
     `);
 
@@ -191,6 +227,7 @@ export class MemoryStore {
       CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(agent_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_memories_accessed ON memories(agent_id, accessed_at DESC);
       CREATE INDEX IF NOT EXISTS idx_memories_expires ON memories(expires_at) WHERE expires_at IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_memories_scope ON memories(scope, target_agent_id);
     `);
   }
 
@@ -205,10 +242,12 @@ export class MemoryStore {
       INSERT INTO memories (
         id, agent_id, type, content, tags, embedding, confidence,
         created_at, updated_at, access_count, expires_at,
-        source_session, source_message_id
+        source_session, source_message_id, scope, scope_confidence,
+        target_agent_id, scope_reasoning
       ) VALUES (
         ?, ?, ?, ?, ?, ?, ?,
         ?, ?, 0, ?,
+        ?, ?, ?, ?,
         ?, ?
       )
     `);
@@ -225,7 +264,11 @@ export class MemoryStore {
       now,
       input.expires_at ?? null,
       input.source_session ?? null,
-      input.source_message_id ?? null
+      input.source_message_id ?? null,
+      input.scope ?? null,
+      input.scope_confidence ?? null,
+      input.target_agent_id ?? null,
+      input.scope_reasoning ?? null
     );
 
     return this.get(id)!;
@@ -272,6 +315,22 @@ export class MemoryStore {
     if (updates.expires_at !== undefined) {
       fields.push('expires_at = ?');
       values.push(updates.expires_at);
+    }
+    if (updates.scope !== undefined) {
+      fields.push('scope = ?');
+      values.push(updates.scope);
+    }
+    if (updates.scope_confidence !== undefined) {
+      fields.push('scope_confidence = ?');
+      values.push(updates.scope_confidence);
+    }
+    if (updates.target_agent_id !== undefined) {
+      fields.push('target_agent_id = ?');
+      values.push(updates.target_agent_id);
+    }
+    if (updates.scope_reasoning !== undefined) {
+      fields.push('scope_reasoning = ?');
+      values.push(updates.scope_reasoning);
     }
 
     values.push(id);

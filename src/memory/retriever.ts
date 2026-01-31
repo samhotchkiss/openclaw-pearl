@@ -149,21 +149,16 @@ export class MemoryRetriever {
     // 1. Embed the query
     const queryEmbedding = await this.embeddings.embed(query);
 
-    // 2. Get all memories with embeddings for this agent
-    const memories = this.store.query({
-      agent_id: agentId,
-      types: opts.types,
-      hasEmbedding: true,
-      limit: 1000, // Get all, we'll filter/sort ourselves
-    });
+    // 2. Get memories from multiple sources
+    const allMemories = await this.gatherMemories(agentId, opts);
 
-    if (memories.length === 0) {
+    if (allMemories.length === 0) {
       return [];
     }
 
     // 3. Score each memory
     const now = Date.now();
-    const scored: ScoredMemory[] = memories.map((memory) => {
+    const scored: ScoredMemory[] = allMemories.map((memory) => {
       // Base similarity score
       const similarity = cosineSimilarity(
         queryEmbedding,

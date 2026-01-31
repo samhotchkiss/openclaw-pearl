@@ -98,6 +98,15 @@ describe('Config System', () => {
           level: 'info',
           file: '~/.pearl/pearl.log',
         },
+        sunrise: {
+          enabled: false,
+          transcriptPath: '~/.pearl/transcripts',
+          model: 'ollama/llama3.2:3b',
+          gapThresholdMs: 3600000,
+          lookbackMs: 7200000,
+          maxMessages: 100,
+          minMessages: 2,
+        },
       });
     });
 
