@@ -42,6 +42,15 @@ export interface UsageRecord {
     sensitive?: boolean;
     /** Session ID if available */
     sessionId?: string;
+    /** Cache-related metrics */
+    cache?: {
+      /** Cost savings from cache hits */
+      savedCost?: number;
+      /** Whether any cache was used in this request */
+      used?: boolean;
+      /** Cache hit ratio (0.0 to 1.0) */
+      hitRatio?: number;
+    };
     /** Custom metadata */
     [key: string]: unknown;
   };
@@ -145,6 +154,20 @@ export interface UsageSummary {
   /** Average tokens per request */
   avgTokensPerRequest: number;
   
+  /** Cache-related metrics */
+  cache?: {
+    /** Total tokens read from cache (saved tokens) */
+    totalCacheHits: number;
+    /** Total cost savings from cache usage */
+    totalCostSavings: number;
+    /** Number of requests that used cache */
+    cacheUsedRequests: number;
+    /** Cache hit ratio across all requests (0.0 to 1.0) */
+    hitRatio: number;
+    /** Average cost savings per cached request */
+    avgSavingsPerRequest: number;
+  };
+  
   /** Breakdown by provider */
   byProvider?: Record<string, UsageSummary>;
   
@@ -171,8 +194,11 @@ export interface ModelPricing {
   /** Cost per 1k output tokens in USD */
   outputCostPer1kTokens: number;
   
-  /** Optional cache read cost per 1k tokens */
+  /** Optional cache read cost per 1k tokens (e.g., Anthropic cache reads) */
   cacheCostPer1kTokens?: number;
+  
+  /** Optional cache write cost per 1k tokens (usually same as input cost) */
+  cacheWriteCostPer1kTokens?: number;
 }
 
 /**
@@ -276,6 +302,15 @@ export interface ICostCalculator {
    * Calculate cost for a request
    */
   calculateCost(provider: string, model: string, usage: TokenUsage): number;
+  
+  /**
+   * Calculate cost with cache savings details
+   */
+  calculateCostWithCache(provider: string, model: string, usage: TokenUsage): {
+    totalCost: number;
+    cacheSavings: number;
+    cacheUsed: boolean;
+  };
   
   /**
    * Get pricing for a model

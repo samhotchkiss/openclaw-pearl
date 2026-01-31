@@ -65,6 +65,13 @@ export function getDefaults(): Config {
       level: 'info',
       file: '~/.pearl/pearl.log',
     },
+    caching: {
+      enabled: true,
+      anthropic: {
+        systemPromptCache: true,
+        memoryContextCache: true,
+      },
+    },
     sunrise: {
       enabled: false,
       transcriptPath: '~/.pearl/transcripts',

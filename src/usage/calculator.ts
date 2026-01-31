@@ -40,15 +40,18 @@ export const DEFAULT_COST_CONFIG: CostConfig = {
     // Claude 3 series
     'claude-3-sonnet-20240229': {
       inputCostPer1kTokens: 0.003,
-      outputCostPer1kTokens: 0.015
+      outputCostPer1kTokens: 0.015,
+      cacheCostPer1kTokens: 0.0015
     },
     'claude-3-opus-20240229': {
       inputCostPer1kTokens: 0.015,
-      outputCostPer1kTokens: 0.075
+      outputCostPer1kTokens: 0.075,
+      cacheCostPer1kTokens: 0.0075
     },
     'claude-3-haiku-20240307': {
       inputCostPer1kTokens: 0.00025,
-      outputCostPer1kTokens: 0.00125
+      outputCostPer1kTokens: 0.00125,
+      cacheCostPer1kTokens: 0.000125
     },
     // Aliases
     'claude-opus-4': {
@@ -207,6 +210,46 @@ export class CostCalculator implements ICostCalculator {
     }
 
     return inputCost + outputCost + cacheCost;
+  }
+
+  /**
+   * Calculate cost with cache savings details
+   */
+  calculateCostWithCache(provider: string, model: string, usage: TokenUsage): {
+    totalCost: number;
+    cacheSavings: number;
+    cacheUsed: boolean;
+  } {
+    const pricing = this.getPricing(provider, model);
+    if (!pricing) {
+      return { totalCost: 0, cacheSavings: 0, cacheUsed: false };
+    }
+
+    const inputCost = (usage.promptTokens * pricing.inputCostPer1kTokens) / 1000;
+    const outputCost = (usage.completionTokens * pricing.outputCostPer1kTokens) / 1000;
+    
+    let cacheSavings = 0;
+    let cacheUsed = false;
+
+    // Calculate cache savings if cache metrics are available
+    if (usage.cache && pricing.cacheCostPer1kTokens) {
+      cacheUsed = true;
+      
+      // Cache read tokens represent savings (we pay cache rate instead of input rate)
+      if (usage.cache.readTokens && usage.cache.readTokens > 0) {
+        const normalCost = (usage.cache.readTokens * pricing.inputCostPer1kTokens) / 1000;
+        const cacheCost = (usage.cache.readTokens * pricing.cacheCostPer1kTokens) / 1000;
+        cacheSavings = normalCost - cacheCost;
+      }
+    }
+
+    const totalCost = inputCost + outputCost - cacheSavings;
+
+    return {
+      totalCost: Math.max(0, totalCost), // Ensure non-negative cost
+      cacheSavings,
+      cacheUsed
+    };
   }
 
   /**

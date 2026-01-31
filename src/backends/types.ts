@@ -58,6 +58,15 @@ export interface TokenUsage {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  /** Cache-related usage metrics */
+  cache?: {
+    /** Tokens that were read from cache (saved tokens) */
+    readTokens?: number;
+    /** Tokens that were written to cache for future use */
+    writeTokens?: number;
+    /** Type of cache used: ephemeral or static */
+    type?: 'ephemeral' | 'static';
+  };
 }
 
 export interface Model {

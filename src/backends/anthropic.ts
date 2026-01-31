@@ -12,6 +12,7 @@ import type {
   ErrorRetryOptions,
   TokenUsage
 } from './types.js';
+import type { CachingConfig } from '../config/types.js';
 import { 
   BackendError, 
   RateLimitError, 
@@ -25,7 +26,15 @@ import {
 
 interface AnthropicMessage {
   role: 'user' | 'assistant';
-  content: string;
+  content: string | AnthropicContentBlock[];
+}
+
+interface AnthropicContentBlock {
+  type: 'text';
+  text: string;
+  cache_control?: {
+    type: 'ephemeral';
+  };
 }
 
 interface AnthropicRequest {
@@ -35,7 +44,7 @@ interface AnthropicRequest {
   stream?: boolean;
   temperature?: number;
   top_p?: number;
-  system?: string;
+  system?: string | AnthropicContentBlock[];
 }
 
 interface AnthropicStreamEvent {
@@ -51,6 +60,8 @@ interface AnthropicStreamEvent {
     usage: {
       input_tokens: number;
       output_tokens: number;
+      cache_creation_input_tokens?: number;
+      cache_read_input_tokens?: number;
     };
   };
   content_block?: {
@@ -66,14 +77,17 @@ interface AnthropicStreamEvent {
   index?: number;
   usage?: {
     output_tokens: number;
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
   };
 }
 
 export class AnthropicClient implements BackendClient {
   private config: Required<BackendConfig>;
   private retryOptions: ErrorRetryOptions;
+  private cachingConfig: CachingConfig;
 
-  constructor(config: BackendConfig) {
+  constructor(config: BackendConfig, cachingConfig?: CachingConfig) {
     this.config = {
       apiKey: config.apiKey || '',
       baseUrl: config.baseUrl || 'https://api.anthropic.com',
@@ -87,6 +101,14 @@ export class AnthropicClient implements BackendClient {
       baseDelay: 1000,
       maxDelay: 10000,
       backoffFactor: 2
+    };
+
+    this.cachingConfig = cachingConfig || {
+      enabled: false,
+      anthropic: {
+        systemPromptCache: false,
+        memoryContextCache: false,
+      },
     };
 
     if (!this.config.apiKey) {
@@ -136,6 +158,8 @@ export class AnthropicClient implements BackendClient {
     let currentContent = '';
     let inputTokens = 0;
     let outputTokens = 0;
+    let cacheCreationTokens = 0;
+    let cacheReadTokens = 0;
 
     try {
       while (true) {
@@ -157,6 +181,8 @@ export class AnthropicClient implements BackendClient {
               if (event.type === 'message_start' && event.message) {
                 messageId = event.message.id;
                 inputTokens = event.message.usage.input_tokens;
+                cacheCreationTokens = event.message.usage.cache_creation_input_tokens || 0;
+                cacheReadTokens = event.message.usage.cache_read_input_tokens || 0;
               } else if (event.type === 'content_block_delta' && event.delta) {
                 currentContent += event.delta.text;
                 
@@ -178,6 +204,13 @@ export class AnthropicClient implements BackendClient {
                 yield chunk;
               } else if (event.type === 'message_delta' && event.usage) {
                 outputTokens = event.usage.output_tokens;
+                // Update cache metrics if provided in delta
+                if (event.usage.cache_creation_input_tokens !== undefined) {
+                  cacheCreationTokens = event.usage.cache_creation_input_tokens;
+                }
+                if (event.usage.cache_read_input_tokens !== undefined) {
+                  cacheReadTokens = event.usage.cache_read_input_tokens;
+                }
               } else if (event.type === 'message_stop') {
                 // Final chunk with usage
                 const finalChunk: ChatChunk = {
@@ -190,11 +223,7 @@ export class AnthropicClient implements BackendClient {
                     delta: {},
                     finishReason: 'stop'
                   }],
-                  usage: {
-                    promptTokens: inputTokens,
-                    completionTokens: outputTokens,
-                    totalTokens: inputTokens + outputTokens
-                  }
+                  usage: this.buildTokenUsage(inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens)
                 };
                 
                 yield finalChunk;
@@ -223,11 +252,12 @@ export class AnthropicClient implements BackendClient {
       throw this.handleError(data.error, response.status);
     }
 
-    const usage: TokenUsage = {
-      promptTokens: data.usage?.input_tokens || 0,
-      completionTokens: data.usage?.output_tokens || 0,
-      totalTokens: (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0)
-    };
+    const usage: TokenUsage = this.buildTokenUsage(
+      data.usage?.input_tokens || 0,
+      data.usage?.output_tokens || 0,
+      data.usage?.cache_creation_input_tokens || 0,
+      data.usage?.cache_read_input_tokens || 0
+    );
 
     const content = data.content?.[0]?.text || '';
 
@@ -292,16 +322,16 @@ export class AnthropicClient implements BackendClient {
     const messages = normalizeMessages(request.messages);
     
     // Extract system message if present
-    let system: string | undefined;
+    let system: string | AnthropicContentBlock[] | undefined;
     const userMessages: AnthropicMessage[] = [];
     
     for (const msg of messages) {
       if (msg.role === 'system') {
-        system = msg.content;
+        system = this.processSystemMessage(msg.content);
       } else if (msg.role === 'user' || msg.role === 'assistant') {
         userMessages.push({
           role: msg.role,
-          content: msg.content
+          content: this.processUserMessage(msg.content)
         });
       }
     }
@@ -327,6 +357,89 @@ export class AnthropicClient implements BackendClient {
     }
 
     return anthropicRequest;
+  }
+
+  private processSystemMessage(content: string): string | AnthropicContentBlock[] {
+    // If caching is disabled or system prompt cache is disabled, return as string
+    if (!this.cachingConfig.enabled || !this.cachingConfig.anthropic.systemPromptCache) {
+      return content;
+    }
+
+    // For system messages, we cache the entire content as ephemeral
+    return [{
+      type: 'text',
+      text: content,
+      cache_control: { type: 'ephemeral' }
+    }];
+  }
+
+  private processUserMessage(content: string): string | AnthropicContentBlock[] {
+    // If caching is disabled or memory context cache is disabled, return as string
+    if (!this.cachingConfig.enabled || !this.cachingConfig.anthropic.memoryContextCache) {
+      return content;
+    }
+
+    // Look for memory context markers
+    const memoryContextRegex = /\[MEMORY_CONTEXT\](.*?)\[\/MEMORY_CONTEXT\]/s;
+    const match = content.match(memoryContextRegex);
+
+    if (!match) {
+      // No memory context, return as string
+      return content;
+    }
+
+    // Extract memory context and remaining content
+    const memoryContext = match[1].trim();
+    const remainingContent = content.replace(memoryContextRegex, '').trim();
+
+    // If there's only memory context, cache it
+    if (!remainingContent) {
+      return [{
+        type: 'text',
+        text: memoryContext,
+        cache_control: { type: 'ephemeral' }
+      }];
+    }
+
+    // If there's both memory context and other content, split them
+    const blocks: AnthropicContentBlock[] = [{
+      type: 'text',
+      text: memoryContext,
+      cache_control: { type: 'ephemeral' }
+    }];
+
+    if (remainingContent) {
+      blocks.push({
+        type: 'text',
+        text: remainingContent
+      });
+    }
+
+    return blocks;
+  }
+
+  private buildTokenUsage(
+    inputTokens: number,
+    outputTokens: number,
+    cacheCreationTokens: number,
+    cacheReadTokens: number
+  ): TokenUsage {
+    const usage: TokenUsage = {
+      promptTokens: inputTokens,
+      completionTokens: outputTokens,
+      totalTokens: inputTokens + outputTokens,
+    };
+
+    // Add cache metrics if any cache tokens are present
+    if (cacheCreationTokens > 0 || cacheReadTokens > 0) {
+      usage.cache = {
+        writeTokens: cacheCreationTokens,
+        readTokens: cacheReadTokens,
+        type: 'ephemeral',
+      };
+    }
+
+    return usage;
   }
 
   private async makeRequest(endpoint: string, options: RequestInit): Promise<Response> {

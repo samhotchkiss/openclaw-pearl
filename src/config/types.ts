@@ -79,6 +79,32 @@ export interface SunriseConfig {
   minMessages?: number;
 }
 
+export interface CachingConfig {
+  enabled: boolean;
+  anthropic: {
+    systemPromptCache: boolean;
+    memoryContextCache: boolean;
+  };
+}
+
+/**
+ * Rate limit configuration
+ */
+export interface RateLimitConfig {
+  /** Maximum number of retries before giving up (default: 3) */
+  maxRetries: number;
+  /** Base delay in milliseconds for exponential backoff (default: 1000) */
+  baseDelayMs: number;
+  /** Maximum delay in milliseconds for exponential backoff (default: 30000) */
+  maxDelayMs: number;
+  /** Whether to enable account failover when rate limited (default: true) */
+  failoverEnabled: boolean;
+  /** How long to mark accounts as cooling down in milliseconds (default: 60000) */
+  cooldownMs: number;
+  /** Jitter factor for randomizing delays (0.0-1.0, default: 0.1) */
+  jitterFactor?: number;
+}
+
 export interface Config {
   server: ServerConfig;
   memory: MemoryConfig;
@@ -88,5 +114,7 @@ export interface Config {
   routing: RoutingConfig;
   backends: BackendsConfig;
   logging: LoggingConfig;
+  caching: CachingConfig;
   sunrise?: SunriseConfig;
+  rateLimit?: RateLimitConfig;
 }
