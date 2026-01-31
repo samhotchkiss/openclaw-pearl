@@ -102,6 +102,8 @@ export interface BackendConfig {
   defaultParams?: Record<string, unknown>;
   timeout?: number;
   retries?: number;
+  /** Auth type - 'apiKey' or 'oauth'. Affects feature availability (e.g., caching requires apiKey) */
+  authType?: 'apiKey' | 'oauth';
 }
 
 export interface ErrorRetryOptions {

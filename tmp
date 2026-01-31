@@ -1,0 +1,21 @@
+/**
+ * Usage tracking module for per-account LLM cost monitoring
+ */
+
+// Core implementation files will be added
+export interface UsageRecord {
+  id: string;
+  accountId: string;
+  agentId?: string;
+  model: string;
+  provider: string;
+  usage: import('../backends/types.js').TokenUsage;
+  cost: number;
+  timestamp: Date;
+  metadata?: Record<string, unknown>;
+}
+
+// Placeholder - full implementation will be completed in follow-up commits
+export function createUsageTracker() {
+  throw new Error('Implementation in progress');
+}

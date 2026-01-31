@@ -471,3 +471,35 @@ describe('Cache Cost Calculation', () => {
     expect(result.cacheUsed).toBe(true);
   });
 });
+describe('OAuth Auth Type', () => {
+  it('should skip caching when authType is oauth', async () => {
+    const { AnthropicClient } = await import('../src/backends/anthropic.js');
+    
+    const client = new AnthropicClient(
+      { apiKey: 'test-key', authType: 'oauth' },
+      { enabled: true, anthropic: { systemPromptCache: true, memoryContextCache: true } }
+    );
+    
+    // Access private method via any cast for testing
+    const result = (client as any).processSystemMessage('test content');
+    
+    // Should return string, not array with cache_control
+    expect(typeof result).toBe('string');
+    expect(result).toBe('test content');
+  });
+
+  it('should apply caching when authType is apiKey', async () => {
+    const { AnthropicClient } = await import('../src/backends/anthropic.js');
+    
+    const client = new AnthropicClient(
+      { apiKey: 'test-key', authType: 'apiKey' },
+      { enabled: true, anthropic: { systemPromptCache: true, memoryContextCache: true } }
+    );
+    
+    const result = (client as any).processSystemMessage('test content');
+    
+    // Should return array with cache_control
+    expect(Array.isArray(result)).toBe(true);
+    expect(result[0].cache_control).toEqual({ type: 'ephemeral' });
+  });
+});

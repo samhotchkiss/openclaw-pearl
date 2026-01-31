@@ -93,7 +93,8 @@ export class AnthropicClient implements BackendClient {
       baseUrl: config.baseUrl || 'https://api.anthropic.com',
       defaultParams: config.defaultParams || {},
       timeout: config.timeout || 30000,
-      retries: config.retries || 3
+      retries: config.retries || 3,
+      authType: config.authType || 'apiKey'
     };
 
     this.retryOptions = {
@@ -365,6 +366,11 @@ export class AnthropicClient implements BackendClient {
       return content;
     }
 
+    // cache_control only works with API key auth, not OAuth
+    if (this.config.authType === 'oauth') {
+      return content;
+    }
+
     // For system messages, we cache the entire content as ephemeral
     return [{
       type: 'text',
@@ -376,6 +382,11 @@ export class AnthropicClient implements BackendClient {
   private processUserMessage(content: string): string | AnthropicContentBlock[] {
     // If caching is disabled or memory context cache is disabled, return as string
     if (!this.cachingConfig.enabled || !this.cachingConfig.anthropic.memoryContextCache) {
+      return content;
+    }
+
+    // cache_control only works with API key auth, not OAuth
+    if (this.config.authType === 'oauth') {
       return content;
     }
 
