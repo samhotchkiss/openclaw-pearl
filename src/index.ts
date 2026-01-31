@@ -58,3 +58,12 @@ export { Pearl } from './pearl.js';
 export { ModelRouter } from './routing/router.js';
 export type { RoutingResult, RouterOptions } from './routing/router.js';
 export type { RequestClassification, RoutingRule } from './routing/types.js';
+
+// Optimization exports
+export { PromptRewriter } from './optimization/rewriter.js';
+export type {
+  RewriteResult,
+  RewriterStats,
+  RewriterConfig,
+  LLMProvider as RewriterLLMProvider,
+} from './optimization/rewriter.js';
