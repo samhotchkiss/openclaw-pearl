@@ -1,3 +1,6 @@
+// Import integration setup for comprehensive mocking
+import '../tests/integration-setup.js';
+
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
@@ -10,7 +13,23 @@ vi.mock('../src/memory/store.js');
 vi.mock('../src/memory/extractor.js');
 vi.mock('../src/memory/retriever.js');
 vi.mock('../src/memory/augmenter.js');
-vi.mock('../src/routing/router.js');
+vi.mock('../src/routing/router.js', () => ({
+  ModelRouter: vi.fn().mockImplementation(() => ({
+    route: vi.fn().mockResolvedValue({
+      model: 'anthropic/claude-sonnet-4-20250514',
+      classification: {
+        complexity: 'medium',
+        type: 'chat',
+        sensitive: false,
+        estimatedTokens: 100,
+        requiresTools: false,
+      },
+      rule: 'test-rule',
+      fallbacks: [],
+    }),
+    initialize: vi.fn().mockResolvedValue(undefined),
+  })),
+}));
 vi.mock('../src/backends/index.js');
 vi.mock('../src/sunrise/index.js');
 
