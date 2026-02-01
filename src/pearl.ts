@@ -91,7 +91,7 @@ export class Pearl {
         provider: this.config.extraction.model.startsWith('ollama/') ? 'ollama' : 'anthropic',
         model: this.config.extraction.model,
         baseUrl: this.config.backends.ollama?.baseUrl,
-        apiKey: this.config.backends.anthropic?.apiKey,
+        apiKey: this.config.backends.anthropic?.api_key,
         minConfidence: this.config.extraction.minConfidence,
       });
 
@@ -100,7 +100,7 @@ export class Pearl {
       this.augmenter = new PromptAugmenter(this.retriever);
 
       // Initialize routing
-      const rules = createRulesFromConfig(this.config.routing.rules, this.config.routing.defaultModel);
+      const rules = createRulesFromConfig(this.config.routing.rules, this.config.routing.default_model);
       const ruleEngine = new RuleEngine(rules);
       this.router = new ModelRouter(ruleEngine, {
         agentOverrides: this.config.routing.agentOverrides,
@@ -111,22 +111,51 @@ export class Pearl {
       });
 
       // Initialize backend clients
+      // Helper to check if API key is valid (not a placeholder)
+      const isValidApiKey = (key?: string): boolean => {
+        if (!key) return false;
+        // Skip placeholder values like ${VAR}
+        if (key.startsWith('${') && key.endsWith('}')) return false;
+        // Skip obviously invalid keys
+        if (key === 'test-key-not-used' || key.length < 10) return false;
+        return true;
+      };
+
       this.backends = new Map();
       
-      if (this.config.backends.anthropic) {
-        this.backends.set('anthropic', createBackendClient('anthropic', this.config.backends.anthropic));
+      console.log('[Pearl] Checking Anthropic backend...');
+      console.log('[Pearl] config.backends.anthropic:', !!this.config.backends.anthropic);
+      console.log('[Pearl] api_key present:', !!this.config.backends.anthropic?.api_key);
+      console.log('[Pearl] api_key valid:', isValidApiKey(this.config.backends.anthropic?.api_key));
+      
+      if (this.config.backends.anthropic && isValidApiKey(this.config.backends.anthropic.api_key)) {
+        try {
+          console.log('[Pearl] Creating Anthropic backend...');
+          this.backends.set('anthropic', createBackendClient('anthropic', this.config.backends.anthropic));
+          console.log('[Pearl] Anthropic backend created successfully');
+        } catch (error) {
+          console.warn('Failed to initialize Anthropic backend:', error);
+        }
       }
       
-      if (this.config.backends.openai) {
-        this.backends.set('openai', createBackendClient('openai', this.config.backends.openai));
+      if (this.config.backends.openai && isValidApiKey(this.config.backends.openai.api_key)) {
+        try {
+          this.backends.set('openai', createBackendClient('openai', this.config.backends.openai));
+        } catch (error) {
+          console.warn('Failed to initialize OpenAI backend:', error);
+        }
       }
       
       if (this.config.backends.ollama) {
         this.backends.set('ollama', createBackendClient('ollama', this.config.backends.ollama));
       }
       
-      if (this.config.backends.openrouter) {
-        this.backends.set('openrouter', createBackendClient('openrouter', this.config.backends.openrouter));
+      if (this.config.backends.openrouter && isValidApiKey(this.config.backends.openrouter.api_key)) {
+        try {
+          this.backends.set('openrouter', createBackendClient('openrouter', this.config.backends.openrouter));
+        } catch (error) {
+          console.warn('Failed to initialize OpenRouter backend:', error);
+        }
       }
 
       // Initialize sunrise service if enabled
@@ -322,7 +351,7 @@ export class Pearl {
    * Determine backend from model name
    */
   private getBackendFromModel(model: string): string {
-    if (model.startsWith('anthropic/') || model.startsWith('claude')) {
+    if (model.startsWith('anthropic-max/') || model.startsWith('anthropic/') || model.startsWith('claude')) {
       return 'anthropic';
     }
     if (model.startsWith('openai/') || model.startsWith('gpt')) {
@@ -487,10 +516,10 @@ export class Pearl {
 
   private getSunriseApiKey(model: string): string | undefined {
     if (model.startsWith('anthropic/')) {
-      return this.config.backends.anthropic?.apiKey;
+      return this.config.backends.anthropic?.api_key;
     }
     if (model.startsWith('openai/') || model.startsWith('gpt')) {
-      return this.config.backends.openai?.apiKey;
+      return this.config.backends.openai?.api_key;
     }
     return undefined;
   }

@@ -16,13 +16,21 @@ import { OllamaClient } from './ollama.js';
 import type { BackendClient, BackendConfig } from './types.js';
 
 export function createBackendClient(provider: string, config: BackendConfig): BackendClient {
+  // Convert snake_case config to camelCase for backend clients
+  const normalizedConfig = {
+    ...config,
+    apiKey: config.api_key ?? config.apiKey,
+    baseUrl: config.base_url ?? config.baseUrl,
+    credentialsFile: (config as any).credentials_file ?? (config as any).credentialsFile,
+  };
+  
   switch (provider.toLowerCase()) {
     case 'anthropic':
-      return new AnthropicClient(config);
+      return new AnthropicClient(normalizedConfig);
     case 'openai':
-      return new OpenAIClient(config);
+      return new OpenAIClient(normalizedConfig);
     case 'ollama':
-      return new OllamaClient(config);
+      return new OllamaClient(normalizedConfig);
     default:
       throw new Error(`Unsupported backend provider: ${provider}`);
   }

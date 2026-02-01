@@ -1,16 +1,75 @@
 /**
  * Pearl HTTP Server
- * OpenAI-compatible API server
+ * OpenAI-compatible API server with real Pearl orchestrator
  */
 
 import Fastify, { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
 import { uuidv7 } from 'uuidv7';
-import type { ServerConfig } from '../types.js';
+import { appendFileSync, mkdirSync, existsSync } from 'fs';
+import { join, dirname } from 'path';
+import { homedir } from 'os';
+import { Pearl } from '../pearl.js';
+import type { ServerConfig, PearlConfig, ChatRequest } from '../types.js';
+
+// Structured request log for the watch CLI
+const REQUEST_LOG_PATH = join(homedir(), '.pearl', 'requests.jsonl');
+
+function ensureLogDir() {
+  const dir = dirname(REQUEST_LOG_PATH);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+}
+
+interface RequestLogEntry {
+  ts: string;
+  id: string;
+  agentId: string;
+  sessionId: string;
+  requestedModel: string;
+  routedModel: string;
+  classification?: { complexity: string; type: string; sensitive: boolean; estimatedTokens: number };
+  prompt: string;       // first 200 chars of last user message
+  responsePreview: string; // first 200 chars of response
+  tokens: { input: number; output: number; total: number };
+  durationMs: number;
+  stream: boolean;
+  rule?: string;
+}
+
+function logRequest(entry: RequestLogEntry) {
+  try {
+    ensureLogDir();
+    appendFileSync(REQUEST_LOG_PATH, JSON.stringify(entry) + '\n');
+  } catch (e) {
+    // Don't crash the server over logging
+  }
+}
 
 // OpenAI-compatible types
+// Content can be a string or array of content blocks (OpenAI multi-modal format)
+type ContentBlock = { type: 'text'; text: string } | { type: string; [key: string]: unknown };
+type MessageContent = string | ContentBlock[];
+
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
-  content: string;
+  content: MessageContent;
+}
+
+/**
+ * Normalize message content to a plain string.
+ * OpenClaw sends content as either:
+ * - A plain string: "hello"
+ * - An array of content blocks: [{"type":"text","text":"hello"}]
+ */
+function normalizeContent(content: MessageContent): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .filter((block): block is { type: 'text'; text: string } =>
+        block.type === 'text' && typeof (block as any).text === 'string')
+      .map(block => block.text)
+      .join('\n');
+  }
+  return String(content ?? '');
 }
 
 interface ChatCompletionRequest {
@@ -114,8 +173,8 @@ function validateChatRequest(body: unknown): { valid: true; request: ChatComplet
     if (!['system', 'user', 'assistant'].includes(msg.role as string)) {
       return { valid: false, error: `messages[${i}].role must be 'system', 'user', or 'assistant'` };
     }
-    if (typeof msg.content !== 'string') {
-      return { valid: false, error: `messages[${i}].content must be a string` };
+    if (typeof msg.content !== 'string' && !Array.isArray(msg.content)) {
+      return { valid: false, error: `messages[${i}].content must be a string or array of content blocks` };
     }
   }
 
@@ -127,28 +186,48 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
-// Create mock response (will be replaced with real routing later)
-function createMockResponse(messages: ChatMessage[]): string {
-  const lastMessage = messages[messages.length - 1];
-  return `[Pearl mock response] Received: "${lastMessage?.content?.slice(0, 50)}..."`;
+export interface CreateServerOptions {
+  serverConfig?: Partial<ServerConfig>;
+  pearlConfig?: PearlConfig;
+  pearl?: Pearl;
 }
 
-export async function createServer(config: Partial<ServerConfig> = {}): Promise<FastifyInstance> {
+export async function createServer(options: CreateServerOptions = {}): Promise<FastifyInstance> {
   const logger = createLogger();
-  const port = config.port ?? 8080;
-  const host = config.host ?? '0.0.0.0';
+  const port = options.serverConfig?.port ?? 8787;
+  const host = options.serverConfig?.host ?? '0.0.0.0';
+
+  // Use provided Pearl instance or create new one
+  let pearl = options.pearl;
+  
+  if (!pearl && options.pearlConfig) {
+    pearl = new Pearl(options.pearlConfig);
+    await pearl.initialize();
+    logger.info('Pearl orchestrator initialized');
+  }
 
   const server = Fastify({
     logger: false, // We use our own logger
   });
 
   // Health check
-  server.get('/v1/health', async (_request: FastifyRequest, reply: FastifyReply) => {
+  server.get('/health', async (_request: FastifyRequest, reply: FastifyReply) => {
     logger.debug('Health check requested');
     return reply.send({
       status: 'healthy',
       version: '0.1.0',
       uptime_seconds: Math.floor(process.uptime()),
+      pearl_initialized: pearl?.isInitialized() ?? false,
+    });
+  });
+
+  // Also support /v1/health for compatibility
+  server.get('/v1/health', async (_request: FastifyRequest, reply: FastifyReply) => {
+    return reply.send({
+      status: 'healthy',
+      version: '0.1.0',
+      uptime_seconds: Math.floor(process.uptime()),
+      pearl_initialized: pearl?.isInitialized() ?? false,
     });
   });
 
@@ -156,9 +235,10 @@ export async function createServer(config: Partial<ServerConfig> = {}): Promise<
   server.get('/v1/models', async (_request: FastifyRequest, reply: FastifyReply) => {
     logger.debug('Models list requested');
     const models: ModelInfo[] = [
-      { id: 'pearl', object: 'model', owned_by: 'pearl' },
-      { id: 'anthropic/claude-sonnet-4-20250514', object: 'model', owned_by: 'anthropic' },
-      { id: 'anthropic/claude-3-5-haiku-20241022', object: 'model', owned_by: 'anthropic' },
+      { id: 'auto', object: 'model', owned_by: 'pearl' },
+      { id: 'anthropic-max/claude-opus-4-20250514', object: 'model', owned_by: 'anthropic' },
+      { id: 'anthropic-max/claude-sonnet-4-20250514', object: 'model', owned_by: 'anthropic' },
+      { id: 'anthropic-max/claude-haiku-4-20250514', object: 'model', owned_by: 'anthropic' },
     ];
     return reply.send({
       object: 'list',
@@ -172,6 +252,7 @@ export async function createServer(config: Partial<ServerConfig> = {}): Promise<
     
     // Get agent ID from header or body
     const headerAgentId = request.headers['x-pearl-agent-id'] as string | undefined;
+    const headerSessionId = request.headers['x-pearl-session-id'] as string | undefined;
     
     // Validate request
     const validation = validateChatRequest(request.body);
@@ -188,48 +269,205 @@ export async function createServer(config: Partial<ServerConfig> = {}): Promise<
 
     const { request: chatRequest } = validation;
     const agentId = chatRequest.metadata?.agent_id ?? headerAgentId ?? 'anonymous';
+    const sessionId = chatRequest.metadata?.session_id ?? headerSessionId ?? uuidv7();
 
     logger.info('Chat completion request', {
       agent_id: agentId,
+      session_id: sessionId,
       model: chatRequest.model,
       message_count: chatRequest.messages.length,
+      stream: chatRequest.stream ?? false,
     });
 
-    // Generate mock response (will be replaced with real routing)
-    const mockContent = createMockResponse(chatRequest.messages);
-    const promptTokens = chatRequest.messages.reduce((sum, m) => sum + estimateTokens(m.content), 0);
-    const completionTokens = estimateTokens(mockContent);
-
-    const response: ChatCompletionResponse = {
-      id: `chatcmpl-${uuidv7()}`,
-      object: 'chat.completion',
-      created: Math.floor(Date.now() / 1000),
-      model: chatRequest.model,
-      choices: [
-        {
-          index: 0,
-          message: {
-            role: 'assistant',
-            content: mockContent,
-          },
-          finish_reason: 'stop',
+    // If Pearl is not initialized, run in passthrough mode
+    if (!pearl || !pearl.isInitialized()) {
+      logger.warn('Pearl not initialized, running in passthrough mode');
+      return reply.status(503).send({
+        error: {
+          type: 'service_unavailable',
+          message: 'Pearl orchestrator not initialized',
+          code: 'pearl_not_ready',
         },
-      ],
-      usage: {
-        prompt_tokens: promptTokens,
-        completion_tokens: completionTokens,
-        total_tokens: promptTokens + completionTokens,
-      },
-    };
+      } satisfies ErrorResponse);
+    }
 
-    const duration = Date.now() - startTime;
-    logger.info('Chat completion response', {
-      agent_id: agentId,
-      duration_ms: duration,
-      tokens: response.usage,
-    });
+    try {
+      // Build Pearl ChatRequest — normalize content to strings
+      const pearlRequest: ChatRequest = {
+        model: chatRequest.model,
+        messages: chatRequest.messages.map(m => ({
+          role: m.role as 'system' | 'user' | 'assistant',
+          content: normalizeContent(m.content),
+        })),
+        stream: chatRequest.stream ?? false,
+        temperature: chatRequest.temperature,
+        maxTokens: chatRequest.max_tokens,
+        metadata: {
+          agentId,
+          sessionId,
+        },
+      };
 
-    return reply.send(response);
+      // Handle streaming vs non-streaming
+      if (chatRequest.stream) {
+        // Streaming response
+        reply.raw.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+        });
+
+        const responseId = `chatcmpl-${uuidv7()}`;
+        const created = Math.floor(Date.now() / 1000);
+        let streamContent = '';
+        let streamModel = chatRequest.model;
+        let streamUsage: any = null;
+
+        for await (const chunk of pearl.chatCompletion(pearlRequest)) {
+          if (chunk.choices?.[0]?.delta?.content) {
+            streamContent += chunk.choices[0].delta.content;
+          }
+          if (chunk.model) {
+            streamModel = chunk.model;
+          }
+          if (chunk.usage) {
+            streamUsage = chunk.usage;
+          }
+
+          const sseChunk = {
+            id: responseId,
+            object: 'chat.completion.chunk',
+            created,
+            model: chunk.model ?? chatRequest.model,
+            choices: chunk.choices?.map((c, i) => ({
+              index: i,
+              delta: {
+                role: c.delta?.role,
+                content: c.delta?.content,
+              },
+              finish_reason: c.finishReason,
+            })) ?? [],
+          };
+          
+          reply.raw.write(`data: ${JSON.stringify(sseChunk)}\n\n`);
+        }
+
+        reply.raw.write('data: [DONE]\n\n');
+        reply.raw.end();
+
+        const duration = Date.now() - startTime;
+        logger.info('Streaming chat completion finished', {
+          agent_id: agentId,
+          duration_ms: duration,
+        });
+
+        // Log to structured request log for watch CLI
+        const lastUserMsgStream = [...chatRequest.messages].reverse().find(m => m.role === 'user');
+        logRequest({
+          ts: new Date().toISOString(),
+          id: responseId,
+          agentId,
+          sessionId,
+          requestedModel: chatRequest.model,
+          routedModel: streamModel,
+          prompt: normalizeContent(lastUserMsgStream?.content ?? '').slice(0, 200),
+          responsePreview: streamContent.slice(0, 200),
+          tokens: {
+            input: streamUsage?.promptTokens ?? 0,
+            output: streamUsage?.completionTokens ?? 0,
+            total: streamUsage?.totalTokens ?? 0,
+          },
+          durationMs: duration,
+          stream: true,
+        });
+
+        return;
+      } else {
+        // Non-streaming response - collect all chunks
+        let fullContent = '';
+        let model = chatRequest.model;
+        let finishReason: 'stop' | 'length' | null = null;
+        let chunkUsage: any = null;
+
+        for await (const chunk of pearl.chatCompletion(pearlRequest)) {
+          if (chunk.choices?.[0]?.delta?.content) {
+            fullContent += chunk.choices[0].delta.content;
+          }
+          if (chunk.model) {
+            model = chunk.model;
+          }
+          if (chunk.choices?.[0]?.finishReason) {
+            finishReason = chunk.choices[0].finishReason as 'stop' | 'length';
+          }
+          if (chunk.usage) {
+            chunkUsage = chunk.usage;
+          }
+        }
+
+        const promptTokens = chunkUsage?.promptTokens ?? chatRequest.messages.reduce((sum, m) => sum + estimateTokens(normalizeContent(m.content)), 0);
+        const completionTokens = chunkUsage?.completionTokens ?? estimateTokens(fullContent);
+
+        const response: ChatCompletionResponse = {
+          id: `chatcmpl-${uuidv7()}`,
+          object: 'chat.completion',
+          created: Math.floor(Date.now() / 1000),
+          model,
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: fullContent,
+              },
+              finish_reason: finishReason ?? 'stop',
+            },
+          ],
+          usage: {
+            prompt_tokens: promptTokens,
+            completion_tokens: completionTokens,
+            total_tokens: promptTokens + completionTokens,
+          },
+        };
+
+        const duration = Date.now() - startTime;
+        logger.info('Chat completion response', {
+          agent_id: agentId,
+          duration_ms: duration,
+          tokens: response.usage,
+        });
+
+        // Log to structured request log for watch CLI
+        const lastUserMsg = [...chatRequest.messages].reverse().find(m => m.role === 'user');
+        logRequest({
+          ts: new Date().toISOString(),
+          id: response.id,
+          agentId,
+          sessionId,
+          requestedModel: chatRequest.model,
+          routedModel: model,
+          prompt: normalizeContent(lastUserMsg?.content ?? '').slice(0, 200),
+          responsePreview: fullContent.slice(0, 200),
+          tokens: { input: promptTokens, output: completionTokens, total: promptTokens + completionTokens },
+          durationMs: duration,
+          stream: false,
+        });
+
+        return reply.send(response);
+      }
+    } catch (error) {
+      logger.error('Chat completion error', {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        agent_id: agentId,
+      });
+      
+      return reply.status(500).send({
+        error: {
+          type: 'internal_error',
+          message: error instanceof Error ? error.message : 'An error occurred during chat completion',
+        },
+      } satisfies ErrorResponse);
+    }
   });
 
   // 404 handler
@@ -267,7 +505,7 @@ export async function createServer(config: Partial<ServerConfig> = {}): Promise<
 async function main() {
   const server = await createServer();
   try {
-    const address = await server.listen({ port: 8080, host: '0.0.0.0' });
+    const address = await server.listen({ port: 8787, host: '0.0.0.0' });
     console.log(`Pearl server listening at ${address}`);
   } catch (err) {
     console.error('Failed to start server:', err);
@@ -275,9 +513,5 @@ async function main() {
   }
 }
 
-// Check if this file is being run directly (ES module check)
-// Note: This will be enabled when the project is built as ESM
-// For now, use: npx tsx src/server/index.ts
-// if (import.meta.url === `file://${process.argv[1]}`) {
-//   main();
-// }
+// Export for CLI
+export { main as startServer };

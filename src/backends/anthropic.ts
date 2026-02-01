@@ -1,8 +1,13 @@
 /**
  * Anthropic Claude Backend Client
- * Implements OpenAI-compatible interface for Anthropic's Claude API
+ * Uses official SDK with full Claude Code stealth mode for OAuth tokens.
+ * 
+ * When using OAuth tokens (sk-ant-oat*), this backend mimics Claude Code's
+ * exact authentication flow: headers, beta flags, user-agent, and system
+ * prompt format — matching the pi-ai reference implementation.
  */
 
+import Anthropic from '@anthropic-ai/sdk';
 import type { 
   BackendClient, 
   ChatRequest, 
@@ -23,62 +28,78 @@ import {
   normalizeMessages
 } from './types.js';
 
-interface AnthropicMessage {
-  role: 'user' | 'assistant';
-  content: string;
+// Claude Code stealth mode constants (from pi-ai reference)
+const CLAUDE_CODE_VERSION = '2.1.2';
+const CLAUDE_CODE_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude.";
+
+// Token refresh constants
+const TOKEN_URL = 'https://console.anthropic.com/v1/oauth/token';
+const CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
+
+function isOAuthToken(apiKey: string): boolean {
+  return apiKey.includes('sk-ant-oat');
 }
 
-interface AnthropicRequest {
-  model: string;
-  max_tokens: number;
-  messages: AnthropicMessage[];
-  stream?: boolean;
-  temperature?: number;
-  top_p?: number;
-  system?: string;
-}
+/**
+ * Refresh an expired OAuth access token using the refresh token.
+ * Returns the new access token, refresh token, and expiry timestamp.
+ */
+async function refreshOAuthToken(refreshToken: string): Promise<{
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+}> {
+  const response = await fetch(TOKEN_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'User-Agent': `claude-cli/${CLAUDE_CODE_VERSION} (external, cli)`,
+    },
+    body: JSON.stringify({
+      grant_type: 'refresh_token',
+      client_id: CLIENT_ID,
+      refresh_token: refreshToken,
+    }),
+  });
 
-interface AnthropicStreamEvent {
-  type: 'message_start' | 'content_block_start' | 'content_block_delta' | 'content_block_stop' | 'message_delta' | 'message_stop';
-  message?: {
-    id: string;
-    type: 'message';
-    role: 'assistant';
-    content: any[];
-    model: string;
-    stop_reason: string | null;
-    stop_sequence: string | null;
-    usage: {
-      input_tokens: number;
-      output_tokens: number;
-    };
+  if (!response.ok) {
+    const error = await response.text();
+    throw new AuthenticationError(`OAuth token refresh failed (${response.status}): ${error}`);
+  }
+
+  const data = await response.json() as {
+    access_token: string;
+    refresh_token: string;
+    expires_in: number;
   };
-  content_block?: {
-    type: 'text';
-    text: string;
-  };
-  delta?: {
-    type: 'text_delta';
-    text: string;
-    stop_reason?: string;
-    stop_sequence?: string | null;
-  };
-  index?: number;
-  usage?: {
-    output_tokens: number;
+
+  return {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token,
+    // 5-minute buffer before actual expiry
+    expiresAt: Date.now() + data.expires_in * 1000 - 5 * 60 * 1000,
   };
 }
 
 export class AnthropicClient implements BackendClient {
   private config: Required<BackendConfig>;
+  private client: Anthropic;
   private retryOptions: ErrorRetryOptions;
+  private isOAuth: boolean;
+
+  // Token refresh state
+  private currentToken: string;
+  private refreshToken: string | null = null;
+  private tokenExpiresAt: number = 0;
+  private refreshPromise: Promise<void> | null = null;
+  private credentialsFilePath: string | null = null;
 
   constructor(config: BackendConfig) {
     this.config = {
       apiKey: config.apiKey || '',
       baseUrl: config.baseUrl || 'https://api.anthropic.com',
       defaultParams: config.defaultParams || {},
-      timeout: config.timeout || 30000,
+      timeout: config.timeout || 120000,
       retries: config.retries || 3
     };
 
@@ -92,304 +113,420 @@ export class AnthropicClient implements BackendClient {
     if (!this.config.apiKey) {
       throw new Error('Anthropic API key is required');
     }
+
+    this.isOAuth = isOAuthToken(this.config.apiKey);
+    this.currentToken = this.config.apiKey;
+
+    // Resolve credentials file path from config or default
+    if (this.isOAuth) {
+      const credFile = (config as any).credentialsFile || (config.defaultParams as any)?.credentials_file;
+      if (credFile) {
+        const os = require('os');
+        this.credentialsFilePath = credFile.replace('~', os.homedir());
+        console.log(`[Anthropic] Using credentials file: ${this.credentialsFilePath}`);
+      } else {
+        // Default: shared credentials file
+        const path = require('path');
+        const os = require('os');
+        this.credentialsFilePath = path.join(os.homedir(), '.claude', '.credentials.json');
+      }
+      this.loadFromCredentialsFile();
+    }
+
+    this.client = this.createClient(this.currentToken);
+  }
+
+  /**
+   * Load current access token, refresh token, and expiry from the credentials file.
+   * Uses configurable path (defaults to ~/.claude/.credentials.json).
+   */
+  private loadFromCredentialsFile(): void {
+    if (!this.credentialsFilePath) return;
+    try {
+      const fs = require('fs');
+      if (!fs.existsSync(this.credentialsFilePath)) {
+        console.log(`[Anthropic] Credentials file not found: ${this.credentialsFilePath}, using config token`);
+        return;
+      }
+      const data = JSON.parse(fs.readFileSync(this.credentialsFilePath, 'utf-8'));
+      const oauth = data.claudeAiOauth;
+      if (oauth) {
+        // Use the token from the credentials file if present (it may be newer)
+        if (oauth.accessToken) {
+          this.currentToken = oauth.accessToken;
+        }
+        this.refreshToken = oauth.refreshToken || null;
+        this.tokenExpiresAt = oauth.expiresAt || 0;
+        console.log(`[Anthropic] Loaded credentials from ${this.credentialsFilePath} (token: ${this.currentToken.slice(0, 20)}...)`);
+      }
+    } catch (err) {
+      console.warn(`[Anthropic] Could not load ${this.credentialsFilePath}, using config token`);
+    }
+  }
+
+  /**
+   * Save updated tokens back to the credentials file.
+   */
+  private saveTokens(accessToken: string, refreshToken: string, expiresAt: number): void {
+    if (!this.credentialsFilePath) return;
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      let data: any = {};
+      if (fs.existsSync(this.credentialsFilePath)) {
+        data = JSON.parse(fs.readFileSync(this.credentialsFilePath, 'utf-8'));
+      }
+      const dir = path.dirname(this.credentialsFilePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      if (!data.claudeAiOauth) data.claudeAiOauth = {};
+      data.claudeAiOauth.accessToken = accessToken;
+      data.claudeAiOauth.refreshToken = refreshToken;
+      data.claudeAiOauth.expiresAt = expiresAt;
+      fs.writeFileSync(this.credentialsFilePath, JSON.stringify(data, null, 2), 'utf-8');
+      console.log(`[Anthropic] Saved refreshed tokens to ${this.credentialsFilePath}`);
+    } catch (err) {
+      console.warn(`[Anthropic] Could not save tokens to ${this.credentialsFilePath}:`, err);
+    }
+  }
+
+  /**
+   * Ensure the OAuth token is valid.
+   * First re-reads credentials file (another process may have refreshed).
+   * Only refreshes ourselves as a last resort.
+   * Coalesces concurrent refresh attempts.
+   */
+  private async ensureValidToken(): Promise<void> {
+    if (!this.isOAuth) return;
+
+    // Always re-read credentials file first — OpenClaw may have refreshed the token
+    const prevToken = this.currentToken;
+    this.loadFromCredentialsFile();
+
+    // If the token changed (another process refreshed), recreate the client
+    if (this.currentToken !== prevToken) {
+      console.log('[Anthropic] Token updated from credentials file (external refresh detected)');
+      this.client = this.createClient(this.currentToken);
+    }
+
+    // If token is still valid, we're good
+    if (Date.now() < this.tokenExpiresAt) return;
+
+    // No refresh token available — can't refresh ourselves
+    if (!this.refreshToken) return;
+
+    // Coalesce concurrent refreshes
+    if (this.refreshPromise) {
+      await this.refreshPromise;
+      return;
+    }
+
+    console.log('[Anthropic] OAuth token expired (no external refresh found), refreshing ourselves...');
+    this.refreshPromise = (async () => {
+      try {
+        const result = await refreshOAuthToken(this.refreshToken!);
+        this.currentToken = result.accessToken;
+        this.refreshToken = result.refreshToken;
+        this.tokenExpiresAt = result.expiresAt;
+
+        // Recreate client with new token
+        this.client = this.createClient(this.currentToken);
+
+        // Persist to disk so other processes can use it
+        this.saveTokens(result.accessToken, result.refreshToken, result.expiresAt);
+
+        console.log('[Anthropic] Token refreshed successfully');
+      } catch (err) {
+        console.error('[Anthropic] Token refresh failed:', err);
+        throw err;
+      } finally {
+        this.refreshPromise = null;
+      }
+    })();
+
+    await this.refreshPromise;
+  }
+
+  /**
+   * Create an Anthropic SDK client with appropriate headers.
+   * OAuth tokens get full Claude Code stealth mode.
+   */
+  private createClient(token: string): Anthropic {
+    if (isOAuthToken(token)) {
+      // Full Claude Code stealth mode
+      const defaultHeaders: Record<string, string> = {
+        'accept': 'application/json',
+        'anthropic-dangerous-direct-browser-access': 'true',
+        'anthropic-beta': 'claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14',
+        'user-agent': `claude-cli/${CLAUDE_CODE_VERSION} (external, cli)`,
+        'x-app': 'cli',
+      };
+
+      console.log('[Anthropic] Creating OAuth client with Claude Code stealth headers');
+
+      return new Anthropic({
+        apiKey: null as any,
+        authToken: token,
+        baseURL: this.config.baseUrl,
+        defaultHeaders,
+        dangerouslyAllowBrowser: true,
+        timeout: this.config.timeout,
+        maxRetries: this.config.retries,
+      });
+    }
+
+    // Standard API key mode
+    console.log('[Anthropic] Creating standard API key client');
+    return new Anthropic({
+      apiKey: token,
+      baseURL: this.config.baseUrl,
+      dangerouslyAllowBrowser: true,
+      defaultHeaders: {
+        'accept': 'application/json',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      timeout: this.config.timeout,
+      maxRetries: this.config.retries,
+    });
   }
 
   async *chat(request: ChatRequest): AsyncGenerator<ChatChunk> {
-    const anthropicRequest = this.convertToAnthropicFormat(request);
+    // Ensure token is fresh before making the request
+    await this.ensureValidToken();
+
+    const { system, messages, model } = this.prepareRequest(request);
     
     let attempt = 0;
     while (attempt <= this.retryOptions.maxRetries) {
       try {
-        if (anthropicRequest.stream) {
-          yield* this.streamChat(anthropicRequest, request);
+        if (request.stream !== false) {
+          yield* this.streamChat(model, messages, system, request);
         } else {
-          yield* this.nonStreamChat(anthropicRequest, request);
+          yield* this.nonStreamChat(model, messages, system, request);
         }
-        return; // Success, exit retry loop
+        return;
       } catch (error) {
+        // On 401, try refreshing the token once
+        if (error instanceof Anthropic.AuthenticationError && this.isOAuth && this.refreshToken && attempt === 0) {
+          console.log('[Anthropic] Got 401, attempting token refresh...');
+          this.tokenExpiresAt = 0; // Force refresh
+          try {
+            await this.ensureValidToken();
+            attempt++;
+            continue;
+          } catch (refreshErr) {
+            throw new AuthenticationError('OAuth token refresh failed after 401');
+          }
+        }
+
         if (error instanceof BackendError && error.retryable && attempt < this.retryOptions.maxRetries) {
           await exponentialBackoff(attempt, this.retryOptions);
           attempt++;
           continue;
+        }
+        // Convert SDK errors to our error types
+        if (error instanceof Anthropic.AuthenticationError) {
+          throw new AuthenticationError(error.message);
+        }
+        if (error instanceof Anthropic.RateLimitError) {
+          throw new RateLimitError(error.message);
+        }
+        if (error instanceof Anthropic.APIError) {
+          throw new BackendError(
+            error.message, 
+            'API_ERROR', 
+            error.status ?? 500, 
+            (error.status ?? 500) >= 500
+          );
         }
         throw error;
       }
     }
   }
 
-  private async *streamChat(anthropicRequest: AnthropicRequest, originalRequest: ChatRequest): AsyncGenerator<ChatChunk> {
-    const response = await this.makeRequest('/v1/messages', {
-      method: 'POST',
-      headers: this.getHeaders(),
-      body: JSON.stringify(anthropicRequest)
-    });
+  private async *streamChat(
+    model: string, 
+    messages: Anthropic.MessageParam[], 
+    system: string | Anthropic.TextBlockParam[] | undefined, 
+    originalRequest: ChatRequest
+  ): AsyncGenerator<ChatChunk> {
+    const params: any = {
+      model,
+      max_tokens: originalRequest.maxTokens || 4096,
+      messages,
+      stream: true,
+    };
 
-    if (!response.body) {
-      throw new BackendError('No response body received', 'NO_BODY');
-    }
+    if (system) params.system = system;
+    if (originalRequest.temperature !== undefined) params.temperature = originalRequest.temperature;
+    if (originalRequest.topP !== undefined) params.top_p = originalRequest.topP;
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    
+    const stream = this.client.messages.stream(params);
     let messageId = '';
-    let currentContent = '';
     let inputTokens = 0;
     let outputTokens = 0;
 
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
-            if (data === '[DONE]') continue;
-
-            try {
-              const event: AnthropicStreamEvent = JSON.parse(data);
-              
-              if (event.type === 'message_start' && event.message) {
-                messageId = event.message.id;
-                inputTokens = event.message.usage.input_tokens;
-              } else if (event.type === 'content_block_delta' && event.delta) {
-                currentContent += event.delta.text;
-                
-                const chunk: ChatChunk = {
-                  id: messageId || generateRequestId(),
-                  object: 'chat.completion.chunk',
-                  created: createTimestamp(),
-                  model: originalRequest.model,
-                  choices: [{
-                    index: 0,
-                    delta: {
-                      role: 'assistant',
-                      content: event.delta.text
-                    },
-                    finishReason: null
-                  }]
-                };
-                
-                yield chunk;
-              } else if (event.type === 'message_delta' && event.usage) {
-                outputTokens = event.usage.output_tokens;
-              } else if (event.type === 'message_stop') {
-                // Final chunk with usage
-                const finalChunk: ChatChunk = {
-                  id: messageId || generateRequestId(),
-                  object: 'chat.completion.chunk',
-                  created: createTimestamp(),
-                  model: originalRequest.model,
-                  choices: [{
-                    index: 0,
-                    delta: {},
-                    finishReason: 'stop'
-                  }],
-                  usage: {
-                    promptTokens: inputTokens,
-                    completionTokens: outputTokens,
-                    totalTokens: inputTokens + outputTokens
-                  }
-                };
-                
-                yield finalChunk;
-              }
-            } catch (parseError) {
-              console.warn('Failed to parse Anthropic event:', data);
-            }
+    for await (const event of stream) {
+      if (event.type === 'message_start') {
+        messageId = event.message.id;
+        inputTokens = event.message.usage.input_tokens;
+      } else if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+        yield {
+          id: messageId || generateRequestId(),
+          object: 'chat.completion.chunk',
+          created: createTimestamp(),
+          model: originalRequest.model,
+          choices: [{
+            index: 0,
+            delta: { role: 'assistant', content: event.delta.text },
+            finishReason: null
+          }]
+        };
+      } else if (event.type === 'message_delta') {
+        outputTokens = event.usage.output_tokens;
+      } else if (event.type === 'message_stop') {
+        yield {
+          id: messageId || generateRequestId(),
+          object: 'chat.completion.chunk',
+          created: createTimestamp(),
+          model: originalRequest.model,
+          choices: [{
+            index: 0,
+            delta: {},
+            finishReason: 'stop'
+          }],
+          usage: {
+            promptTokens: inputTokens,
+            completionTokens: outputTokens,
+            totalTokens: inputTokens + outputTokens
           }
-        }
+        };
       }
-    } finally {
-      reader.releaseLock();
     }
   }
 
-  private async *nonStreamChat(anthropicRequest: AnthropicRequest, originalRequest: ChatRequest): AsyncGenerator<ChatChunk> {
-    const response = await this.makeRequest('/v1/messages', {
-      method: 'POST',
-      headers: this.getHeaders(),
-      body: JSON.stringify({ ...anthropicRequest, stream: false })
-    });
-
-    const data = await response.json() as any;
-    
-    if (data.error) {
-      throw this.handleError(data.error, response.status);
-    }
-
-    const usage: TokenUsage = {
-      promptTokens: data.usage?.input_tokens || 0,
-      completionTokens: data.usage?.output_tokens || 0,
-      totalTokens: (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0)
+  private async *nonStreamChat(
+    model: string, 
+    messages: Anthropic.MessageParam[], 
+    system: string | Anthropic.TextBlockParam[] | undefined, 
+    originalRequest: ChatRequest
+  ): AsyncGenerator<ChatChunk> {
+    const params: any = {
+      model,
+      max_tokens: originalRequest.maxTokens || 4096,
+      messages,
     };
 
-    const content = data.content?.[0]?.text || '';
+    if (system) params.system = system;
+    if (originalRequest.temperature !== undefined) params.temperature = originalRequest.temperature;
+    if (originalRequest.topP !== undefined) params.top_p = originalRequest.topP;
 
-    const chunk: ChatChunk = {
-      id: data.id || generateRequestId(),
+    const response = await this.client.messages.create(params);
+
+    const content = response.content
+      .filter((block): block is Anthropic.TextBlock => block.type === 'text')
+      .map(block => block.text)
+      .join('');
+
+    yield {
+      id: response.id || generateRequestId(),
       object: 'chat.completion.chunk',
       created: createTimestamp(),
       model: originalRequest.model,
       choices: [{
         index: 0,
-        delta: {
-          role: 'assistant',
-          content: content
-        },
+        delta: { role: 'assistant', content },
         finishReason: 'stop'
       }],
-      usage
+      usage: {
+        promptTokens: response.usage.input_tokens,
+        completionTokens: response.usage.output_tokens,
+        totalTokens: response.usage.input_tokens + response.usage.output_tokens
+      }
     };
-
-    yield chunk;
   }
 
   async models(): Promise<Model[]> {
-    // Anthropic doesn't have a models endpoint, so we return known models
     const knownModels = [
-      'claude-3-opus-20240229',
-      'claude-3-sonnet-20240229', 
-      'claude-3-haiku-20240307',
-      'claude-3-5-sonnet-20240620',
-      'claude-3-5-sonnet-20241022',
-      'claude-3-5-haiku-20241022'
+      'claude-opus-4-20250514',
+      'claude-sonnet-4-20250514',
+      'claude-3-5-haiku-20241022',
     ];
 
     return knownModels.map((modelId, index) => ({
       id: modelId,
       object: 'model',
-      created: 1677610602 + index, // Base timestamp + offset
+      created: 1677610602 + index,
       ownedBy: 'anthropic'
     }));
   }
 
   async health(): Promise<boolean> {
     try {
-      // Use a lightweight request to check health
-      const response = await this.makeRequest('/v1/messages', {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify({
-          model: 'claude-3-haiku-20240307',
-          max_tokens: 1,
-          messages: [{ role: 'user', content: 'test' }]
-        })
+      await this.client.messages.create({
+        model: 'claude-3-5-haiku-20241022',
+        max_tokens: 1,
+        messages: [{ role: 'user', content: 'test' }]
       });
-
-      return response.status < 500; // Consider client errors (4xx) as healthy but server errors (5xx) as unhealthy
-    } catch (error) {
+      return true;
+    } catch {
       return false;
     }
   }
 
-  private convertToAnthropicFormat(request: ChatRequest): AnthropicRequest {
-    const messages = normalizeMessages(request.messages);
+  private prepareRequest(request: ChatRequest): {
+    system: string | Anthropic.TextBlockParam[] | undefined;
+    messages: Anthropic.MessageParam[];
+    model: string;
+  } {
+    const normalized = normalizeMessages(request.messages);
     
-    // Extract system message if present
-    let system: string | undefined;
-    const userMessages: AnthropicMessage[] = [];
+    let systemText: string | undefined;
+    const messages: Anthropic.MessageParam[] = [];
     
-    for (const msg of messages) {
+    for (const msg of normalized) {
       if (msg.role === 'system') {
-        system = msg.content;
+        systemText = systemText ? `${systemText}\n\n${msg.content}` : msg.content;
       } else if (msg.role === 'user' || msg.role === 'assistant') {
-        userMessages.push({
-          role: msg.role,
-          content: msg.content
+        messages.push({ role: msg.role, content: msg.content });
+      }
+    }
+
+    // For OAuth tokens, use Claude Code system prompt format:
+    // Array of content blocks with cache_control (matching pi-ai exactly)
+    let system: string | Anthropic.TextBlockParam[] | undefined;
+    
+    if (this.isOAuth) {
+      const blocks: any[] = [
+        {
+          type: 'text',
+          text: CLAUDE_CODE_IDENTITY,
+          cache_control: { type: 'ephemeral' },
+        },
+      ];
+      
+      if (systemText) {
+        blocks.push({
+          type: 'text',
+          text: systemText,
+          cache_control: { type: 'ephemeral' },
         });
       }
+      
+      system = blocks;
+    } else {
+      system = systemText;
     }
 
-    const anthropicRequest: AnthropicRequest = {
-      model: request.model,
-      max_tokens: request.maxTokens || 4096,
-      messages: userMessages,
-      stream: request.stream !== false, // Default to streaming
-      ...this.config.defaultParams
-    };
-
-    if (system) {
-      anthropicRequest.system = system;
+    // Strip 'anthropic/' or 'anthropic-max/' prefix
+    let model = request.model;
+    if (model.startsWith('anthropic-max/')) {
+      model = model.slice(14);
+    } else if (model.startsWith('anthropic/')) {
+      model = model.slice(10);
     }
 
-    if (request.temperature !== undefined) {
-      anthropicRequest.temperature = request.temperature;
-    }
-
-    if (request.topP !== undefined) {
-      anthropicRequest.top_p = request.topP;
-    }
-
-    return anthropicRequest;
-  }
-
-  private async makeRequest(endpoint: string, options: RequestInit): Promise<Response> {
-    const url = `${this.config.baseUrl.replace(/\/$/, '')}${endpoint}`;
-    
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.config.timeout);
-
-    try {
-      const response = await fetch(url, {
-        ...options,
-        signal: controller.signal
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw this.handleError(errorData, response.status);
-      }
-
-      return response;
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw new NetworkError('Request timeout');
-      }
-      if (error instanceof BackendError) {
-        throw error;
-      }
-      throw new NetworkError(`Network error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
-      clearTimeout(timeoutId);
-    }
-  }
-
-  private getHeaders(): Record<string, string> {
-    return {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${this.config.apiKey}`,
-      'x-api-key': this.config.apiKey,
-      'anthropic-version': '2023-06-01',
-      'User-Agent': 'OpenClaw-Pearl/1.0'
-    };
-  }
-
-  private handleError(errorData: any, status: number): BackendError {
-    const message = errorData.error?.message || errorData.message || 'Unknown error';
-    
-    switch (status) {
-      case 401:
-        return new AuthenticationError(message);
-      case 429:
-        const retryAfter = errorData.error?.retry_after;
-        return new RateLimitError(message, retryAfter);
-      case 400:
-      case 403:
-      case 404:
-        return new BackendError(message, 'CLIENT_ERROR', status, false);
-      case 500:
-      case 502:
-      case 503:
-      case 504:
-        return new BackendError(message, 'SERVER_ERROR', status, true);
-      default:
-        return new BackendError(message, 'UNKNOWN_ERROR', status, status >= 500);
-    }
+    return { system, messages, model };
   }
 }

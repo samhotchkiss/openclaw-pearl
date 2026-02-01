@@ -1,13 +1,13 @@
 /**
  * Serve Command
- * Starts the Pearl HTTP server
+ * Starts the Pearl HTTP server with full orchestrator
  */
 
 import { Command } from 'commander';
 import { resolve } from 'path';
-import { existsSync } from 'fs';
 import { loadConfig } from '../config/loader.js';
 import { createServer } from '../server/index.js';
+import { Pearl } from '../pearl.js';
 import type { Config } from '../config/types.js';
 
 export interface ServeOptions {
@@ -52,10 +52,20 @@ export async function runServe(options: ServeOptions): Promise<void> {
     config.server.host = options.host;
   }
 
+  console.log('Initializing Pearl orchestrator...');
+  
+  // Create Pearl instance with config
+  const pearl = new Pearl(config);
+  await pearl.initialize();
+  console.log('Pearl orchestrator initialized');
+  
   console.log('Starting Pearl server...');
   
-  // Create and start server
-  const server = await createServer(config.server);
+  // Create and start server with Pearl instance
+  const server = await createServer({
+    serverConfig: config.server,
+    pearl,
+  });
   
   const address = await server.listen({
     port: config.server.port,
@@ -71,6 +81,7 @@ export async function runServe(options: ServeOptions): Promise<void> {
     
     try {
       await server.close();
+      await pearl.shutdown();
       console.log('Shutdown complete');
       process.exit(0);
     } catch (error) {
