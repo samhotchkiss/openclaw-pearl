@@ -483,8 +483,7 @@ export async function createServer(options: CreateServerOptions = {}): Promise<F
     if (!agentId) {
       return reply.status(400).send({
         error: {
-          type: 'invalid_request_error',
-          message: 'Missing required parameter: agent',
+          error: 'Missing required parameter: agent',
         },
       });
     }
@@ -524,8 +523,7 @@ export async function createServer(options: CreateServerOptions = {}): Promise<F
     if (!body.agent) {
       return reply.status(400).send({
         error: {
-          type: 'invalid_request_error',
-          message: 'Missing required field: agent',
+          error: 'Missing required field: agent',
         },
       });
     }
@@ -533,8 +531,7 @@ export async function createServer(options: CreateServerOptions = {}): Promise<F
     if (!body.content) {
       return reply.status(400).send({
         error: {
-          type: 'invalid_request_error',
-          message: 'Missing required field: content',
+          error: 'Missing required field: content',
         },
       });
     }
@@ -544,8 +541,7 @@ export async function createServer(options: CreateServerOptions = {}): Promise<F
     if (body.type && !validTypes.includes(body.type)) {
       return reply.status(400).send({
         error: {
-          type: 'invalid_request_error',
-          message: `Invalid memory type. Must be one of: ${validTypes.join(', ')}`,
+          error: `Invalid memory type. Must be one of: ${validTypes.join(', ')}`,
         },
       });
     }
@@ -593,8 +589,7 @@ export async function createServer(options: CreateServerOptions = {}): Promise<F
       if (!deleted) {
         return reply.status(404).send({
           error: {
-            type: 'not_found_error',
-            message: 'Memory not found',
+            error: 'Memory not found',
           },
         });
       }

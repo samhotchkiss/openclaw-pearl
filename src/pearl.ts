@@ -607,8 +607,14 @@ export class Pearl {
       return await this.retriever.retrieve(search, agentId);
     }
     
-    // For simple listing, search with empty query to get all memories
-    return await this.memoryStore.search(agentId, '', { limit, offset });
+    // For simple listing, use query to get all memories for the agent
+    const memories = this.memoryStore.query({ agent_id: agentId, limit, offset });
+    
+    // Convert Memory[] to ScoredMemory[] by adding default score
+    return memories.map(memory => ({
+      ...memory,
+      score: 1.0 // Default score for listing (not search-based)
+    }));
   }
   
   async createMemory(data: { agentId: string; content: string; type: string; tags: string[] }): Promise<{ id: string; createdAt: string }> {
@@ -616,17 +622,16 @@ export class Pearl {
       throw new Error('Memory store not initialized');
     }
 
-    const memory: ExtractedMemory = {
-      id: `mem_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    // Create MemoryInput for the memory store
+    const memoryInput = {
+      agent_id: data.agentId,
       type: data.type as any,
       content: data.content,
       confidence: 1.0, // Manually created memories have high confidence
       tags: data.tags,
-      agentId: data.agentId,
-      createdAt: new Date().toISOString(),
     };
 
-    await this.memoryStore.store(memory);
+    const memory = this.memoryStore.create(memoryInput);
     
     this.logger.info('Memory created manually', {
       memoryId: memory.id,
@@ -637,7 +642,7 @@ export class Pearl {
 
     return {
       id: memory.id,
-      createdAt: memory.createdAt,
+      createdAt: new Date(memory.created_at).toISOString(),
     };
   }
   
