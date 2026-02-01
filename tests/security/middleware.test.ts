@@ -110,7 +110,7 @@ describe('SecurityMiddleware', () => {
       const result = await middleware.processRequest(request);
 
       expect(result.allowed).toBe(false);
-      expect(result.securityResult.severity).toBeIn(['HIGH', 'CRITICAL']);
+      expect(['HIGH', 'CRITICAL']).toContain(result.securityResult.severity);
       expect(result.securityResult.action).toBe('block');
       expect(result.blockReason).toContain('prompt injection');
     });
@@ -349,7 +349,7 @@ describe('SecurityMiddleware', () => {
       const result = await middleware.processRequest(request);
 
       expect(result.allowed).toBe(false);
-      expect(result.securityResult.severity).toBeIn(['HIGH', 'CRITICAL']);
+      expect(['HIGH', 'CRITICAL']).toContain(result.securityResult.severity);
     });
   });
 
