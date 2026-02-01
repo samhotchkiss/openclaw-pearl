@@ -19,7 +19,7 @@ import type {
 // Default patterns based on prompt-guard research
 const DEFAULT_PATTERNS: Required<PatternConfig> = {
   instructionOverride: [
-    /ignore\s+(all\s+)?(previous|prior|above|security)\s+(instructions?|restrictions?)/i,
+    /ignore\s+(all\s+)?((previous|prior|above|security)\s+)?(instructions?|restrictions?)/i,
     /disregard\s+(your|all)\s+(rules?|instructions?)/i,
     /forget\s+(everything|all)\s+you\s+(know|learned)/i,
     /new\s+instructions?\s*:/i,
