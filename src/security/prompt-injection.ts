@@ -19,7 +19,7 @@ import type {
 // Default patterns based on prompt-guard research
 const DEFAULT_PATTERNS: Required<PatternConfig> = {
   instructionOverride: [
-    /ignore\s+(all\s+)?(previous|prior|above)\s+instructions?/i,
+    /ignore\s+(all\s+)?(previous|prior|above|security)\s+(instructions?|restrictions?)/i,
     /disregard\s+(your|all)\s+(rules?|instructions?)/i,
     /forget\s+(everything|all)\s+you\s+(know|learned)/i,
     /new\s+instructions?\s*:/i,
@@ -241,10 +241,7 @@ export class PromptInjectionDetector {
       }
     }
 
-    // Record attempt for rate limiting
-    if (maxSeverity !== 'SAFE' && context?.userId) {
-      this.recordAttempt(context.userId);
-    }
+    // Attempt recording is now handled in checkRateLimit
 
     const action = this.config.actions[maxSeverity] || 'allow';
 
@@ -513,9 +510,12 @@ export class PromptInjectionDetector {
         msg.content.toLowerCase().includes('access')
       );
 
-      if (suspiciousMessages.length >= 3) {
+      if (suspiciousMessages.length >= 2) {
         factors.push('multi_turn_escalation');
-        escalate = true;
+        // Only escalate if we have a high risk score or admin context
+        if (context.riskScore && context.riskScore > 0.5) {
+          escalate = true;
+        }
       }
     }
 
@@ -592,30 +592,40 @@ export class PromptInjectionDetector {
     if (!state) {
       state = {
         userId,
-        attempts: 0,
+        attempts: 1, // Start with 1 for this attempt
         firstAttempt: now,
         lastAttempt: now
       };
-      this.rateLimitStore.set(userId, state);
+    } else {
+      state.attempts++;
+      state.lastAttempt = now;
     }
 
     // Check if ban has expired
     if (state.banned && state.banExpiry && now > state.banExpiry) {
       state.banned = false;
       state.banExpiry = undefined;
-      state.attempts = 0;
+      state.attempts = 1; // Reset to 1 for current attempt
       state.firstAttempt = now;
-    }
-
-    // If user is banned
-    if (state.banned) {
-      return true;
     }
 
     // Reset window if enough time has passed
     if (now - state.firstAttempt > windowMs) {
-      state.attempts = 0;
+      state.attempts = 1; // Reset to 1 for current attempt
       state.firstAttempt = now;
+    }
+
+    // Check if we need to ban
+    if (state.attempts >= this.config.rateLimit.maxAttempts) {
+      state.banned = true;
+      state.banExpiry = now + (this.config.rateLimit.banDuration || 3600000); // 1 hour default
+    }
+
+    this.rateLimitStore.set(userId, state);
+
+    // If user is banned (including newly banned)
+    if (state.banned) {
+      return true;
     }
 
     return false;

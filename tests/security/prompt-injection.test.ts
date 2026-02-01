@@ -23,7 +23,7 @@ describe('PromptInjectionDetector', () => {
       sensitivity: 'medium',
       patterns: {
         instructionOverride: [
-          /ignore\s+(all\s+)?(previous|prior|above)\s+instructions?/i,
+          /ignore\s+(all\s+)?(previous|prior|above|security)\s+(instructions?|restrictions?)/i,
           /disregard\s+(your|all)\s+(rules?|instructions?)/i,
           /forget\s+(everything|all)\s+you\s+(know|learned)/i
         ],
