@@ -5,6 +5,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createServer } from '../src/server.js';
 import type { PearlConfig, ScoredMemory } from '../src/types.js';
+import { createTestConfig, mockExternalServices } from './setup/test-helpers.js';
 
 // Import integration setup for comprehensive mocking
 import './integration-setup.js';
@@ -13,48 +14,13 @@ describe('Memory API Endpoints', () => {
   let server: any;
   let baseUrl: string;
 
-  const createTestConfig = (): PearlConfig => ({
-    server: {
-      port: 8081, // Use different port for testing
-      host: '127.0.0.1',
-    },
-    memory: {
-      store: 'sqlite',
-      path: ':memory:',
-    },
-    extraction: {
-      enabled: false,
-      model: 'ollama/llama3.2:3b',
-      async: false,
-      minConfidence: 0.7,
-      extractFromAssistant: false,
-      dedupWindowSeconds: 300,
-    },
-    embedding: {
-      provider: 'ollama',
-      model: 'nomic-embed-text',
-      dimensions: 768,
-    },
-    retrieval: {
-      maxMemories: 10,
-      minSimilarity: 0.7,
-      tokenBudget: 500,
-      recencyBoost: true,
-    },
-    routing: {
-      classifier: 'ollama/llama3.2:3b',
-      defaultModel: 'anthropic/claude-sonnet-4-20250514',
-      rules: [],
-    },
-    backends: {
-      anthropic: {
-        apiKey: 'test-key',
-      },
-    },
-  });
-
   beforeEach(async () => {
+    mockExternalServices();
+    
     const config = createTestConfig();
+    // Override port for this test
+    config.server.port = 8081;
+    
     server = await createServer({ pearlConfig: config });
     await server.listen({ port: 8081, host: '127.0.0.1' });
     baseUrl = `http://127.0.0.1:8081`;
@@ -73,7 +39,12 @@ describe('Memory API Endpoints', () => {
       // Debug: Print response body 
       const responseBody = await response.text();
       console.log('Response status:', response.status);
+      console.log('Response status:', response.status);
       console.log('Response body:', responseBody);
+      
+      if (response.status !== 200) {
+        console.log('Error response details:', responseBody);
+      }
       
       expect(response.status).toBe(200);
       

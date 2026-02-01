@@ -494,6 +494,9 @@ export async function createServer(options: CreateServerOptions = {}): Promise<F
     const search = query.search;
 
     try {
+      if (!pearl) {
+        throw new Error('Pearl instance not available');
+      }
       const memories = await pearl.getMemories(agentId, { limit, offset, search });
       
       return reply.send({
@@ -548,6 +551,9 @@ export async function createServer(options: CreateServerOptions = {}): Promise<F
     }
 
     try {
+      if (!pearl) {
+        throw new Error('Pearl instance not available');
+      }
       const memory = await pearl.createMemory({
         agentId: body.agent,
         content: body.content,
@@ -579,6 +585,9 @@ export async function createServer(options: CreateServerOptions = {}): Promise<F
     const { id } = request.params as { id: string };
     
     try {
+      if (!pearl) {
+        throw new Error('Pearl instance not available');
+      }
       const deleted = await pearl.deleteMemory(id);
       
       if (!deleted) {
