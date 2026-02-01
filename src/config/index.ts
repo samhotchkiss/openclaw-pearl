@@ -11,4 +11,5 @@
 export { loadConfig } from './loader.js';
 export { getDefaults } from './defaults.js';
 export { validateConfig } from './validate.js';
+export { normalizeConfig } from './normalize.js';
 export type * from './types.js';

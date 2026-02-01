@@ -315,8 +315,13 @@ export class OllamaClient implements BackendClient {
   }
 
   private convertToOllamaFormat(request: ChatRequest): OllamaRequest {
+    // Strip 'ollama/' prefix if present
+    const model = request.model.startsWith('ollama/') 
+      ? request.model.slice(7) 
+      : request.model;
+    
     const ollamaRequest: OllamaRequest = {
-      model: request.model,
+      model,
       messages: normalizeMessages(request.messages) as OllamaMessage[],
       stream: request.stream !== false, // Default to streaming
       options: {

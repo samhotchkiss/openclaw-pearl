@@ -5,10 +5,10 @@
 
 import { uuidv7 } from 'uuidv7';
 import { MemoryStore } from './memory/store.js';
-import { MemoryExtractor, createProvider } from './memory/extractor.js';
+import { MemoryExtractor, type LLMProviderConfig } from './memory/extractor.js';
 import { MemoryRetriever } from './memory/retriever.js';
 import { PromptAugmenter } from './memory/augmenter.js';
-import { createEmbeddingProvider } from './memory/embeddings.js';
+import { EmbeddingService } from './memory/embeddings.js';
 import { ModelRouter } from './routing/router.js';
 import { RuleEngine, createRulesFromConfig } from './routing/rules.js';
 import { createBackendClient } from './backends/index.js';
@@ -17,6 +17,7 @@ import type {
   ChatRequest,
   ChatChunk,
   ChatMessage,
+  Message,
   BackendClient,
   RoutingResult,
   ScoredMemory,
@@ -24,11 +25,11 @@ import type {
   AugmentResult,
   SunriseConfig,
 } from './types.js';
-import { 
-  SunriseService, 
+import {
+  SunriseService,
   createSunriseService,
   TranscriptLogger,
-  type SunriseHandleResult 
+  type SunriseHandleResult
 } from './sunrise/index.js';
 
 interface RequestMetadata {
@@ -43,10 +44,20 @@ interface ExtractionQueue {
   timestamp: number;
 }
 
+// Utility function to convert ChatMessage[] to backend-compatible Message[]
+function convertMessagesToBackend(messages: ChatMessage[]): Message[] {
+  return messages
+    .filter(msg => ['user', 'assistant', 'system'].includes(msg.role))
+    .map(msg => ({
+      role: msg.role as 'user' | 'assistant' | 'system',
+      content: msg.content
+    }));
+}
+
 export class Pearl {
   private config: PearlConfig;
   private initialized = false;
-  
+
   // Core components
   private memoryStore!: MemoryStore;
   private extractor!: MemoryExtractor;
@@ -54,14 +65,14 @@ export class Pearl {
   private augmenter!: PromptAugmenter;
   private router!: ModelRouter;
   private backends!: Map<string, BackendClient>;
-  
+
   // Sunrise components
   private sunriseService?: SunriseService;
   private transcriptLogger?: TranscriptLogger;
-  
+
   // Session tracking
   private sessionMemories = new Map<string, Set<string>>(); // sessionId -> Set<memoryId>
-  
+
   // Extraction queue for async processing
   private extractionQueue: ExtractionQueue[] = [];
   private extractionWorkerRunning = false;
@@ -81,29 +92,40 @@ export class Pearl {
     try {
       // Initialize memory store
       this.memoryStore = new MemoryStore(this.config.memory.path);
-      await this.memoryStore.initialize();
 
-      // Initialize embedding provider
-      const embeddingProvider = createEmbeddingProvider(this.config.embedding);
+      // Initialize embedding service
+      const embeddingService = new EmbeddingService(this.config.embedding);
 
       // Initialize memory components
-      const llmProvider = createProvider({
+      const llmProviderConfig = {
         provider: this.config.extraction.model.startsWith('ollama/') ? 'ollama' : 'anthropic',
         model: this.config.extraction.model,
         baseUrl: this.config.backends.ollama?.baseUrl,
         apiKey: this.config.backends.anthropic?.apiKey,
         minConfidence: this.config.extraction.minConfidence,
-      });
+      } as LLMProviderConfig;
 
-      this.extractor = new MemoryExtractor(llmProvider);
-      this.retriever = new MemoryRetriever(this.memoryStore, embeddingProvider, this.config.retrieval);
+      this.extractor = new MemoryExtractor(llmProviderConfig);
+      this.retriever = new MemoryRetriever(this.memoryStore, embeddingService, this.config.retrieval);
       this.augmenter = new PromptAugmenter(this.retriever);
 
-      // Initialize routing
-      const rules = createRulesFromConfig(this.config.routing.rules, this.config.routing.defaultModel);
+      // Initialize routing  
+      const typedRules = this.config.routing.rules.map(rule => ({
+        name: rule.name,
+        match: {
+          ...rule.match,
+          type: rule.match.type as 'general' | 'code' | 'creative' | 'analysis' | 'chat' | undefined
+        },
+        model: rule.model,
+        priority: rule.priority
+      }));
+      const rules = createRulesFromConfig(typedRules, this.config.routing.defaultModel);
       const ruleEngine = new RuleEngine(rules);
       this.router = new ModelRouter(ruleEngine, {
-        agentOverrides: this.config.routing.agentOverrides,
+        agentOverrides: this.config.routing.agentOverrides ? 
+          Object.fromEntries(
+            Object.entries(this.config.routing.agentOverrides).map(([k, v]) => [k, typeof v === 'string' ? v : v.defaultModel])
+          ) : undefined,
         fallbackChains: this.config.routing.fallback,
         classificationOptions: {
           model: this.config.routing.classifier,
@@ -111,22 +133,51 @@ export class Pearl {
       });
 
       // Initialize backend clients
+      // Helper to check if API key is valid (not a placeholder)
+      const isValidApiKey = (key?: string): boolean => {
+        if (!key) return false;
+        // Skip placeholder values like ${VAR}
+        if (key.startsWith('${') && key.endsWith('}')) return false;
+        // Skip obviously invalid keys
+        if (key === 'test-key-not-used' || key.length < 10) return false;
+        return true;
+      };
+
       this.backends = new Map();
-      
-      if (this.config.backends.anthropic) {
-        this.backends.set('anthropic', createBackendClient('anthropic', this.config.backends.anthropic));
+
+      console.log('[Pearl] Checking Anthropic backend...');
+      console.log('[Pearl] config.backends.anthropic:', !!this.config.backends.anthropic);
+      console.log('[Pearl] api_key present:', !!this.config.backends.anthropic?.apiKey);
+      console.log('[Pearl] api_key valid:', isValidApiKey(this.config.backends.anthropic?.apiKey));
+
+      if (this.config.backends.anthropic && isValidApiKey(this.config.backends.anthropic.apiKey)) {
+        try {
+          console.log('[Pearl] Creating Anthropic backend...');
+          this.backends.set('anthropic', createBackendClient('anthropic', this.config.backends.anthropic));
+          console.log('[Pearl] Anthropic backend created successfully');
+        } catch (error) {
+          console.warn('Failed to initialize Anthropic backend:', error);
+        }
       }
-      
-      if (this.config.backends.openai) {
-        this.backends.set('openai', createBackendClient('openai', this.config.backends.openai));
+
+      if (this.config.backends.openai && isValidApiKey(this.config.backends.openai.apiKey)) {
+        try {
+          this.backends.set('openai', createBackendClient('openai', this.config.backends.openai));
+        } catch (error) {
+          console.warn('Failed to initialize OpenAI backend:', error);
+        }
       }
-      
+
       if (this.config.backends.ollama) {
         this.backends.set('ollama', createBackendClient('ollama', this.config.backends.ollama));
       }
-      
-      if (this.config.backends.openrouter) {
-        this.backends.set('openrouter', createBackendClient('openrouter', this.config.backends.openrouter));
+
+      if (this.config.backends.openrouter && isValidApiKey(this.config.backends.openrouter.apiKey)) {
+        try {
+          this.backends.set('openrouter', createBackendClient('openrouter', this.config.backends.openrouter));
+        } catch (error) {
+          console.warn('Failed to initialize OpenRouter backend:', error);
+        }
       }
 
       // Initialize sunrise service if enabled
@@ -144,7 +195,7 @@ export class Pearl {
           maxMessages: this.config.sunrise.maxMessages,
           minMessages: this.config.sunrise.minMessages,
         });
-        
+
         this.transcriptLogger = new TranscriptLogger(this.config.sunrise.transcriptPath);
       }
 
@@ -189,13 +240,13 @@ export class Pearl {
       }
 
       // 3. Handle sunrise session recovery (if enabled)
-      let messagesToAugment = request.messages;
+      let messagesToAugment: ChatMessage[] = request.messages;
       let sunriseInjected = false;
-      
+
       if (this.sunriseService && this.transcriptLogger) {
         const sunriseResult = await this.handleSunriseRecovery(
-          metadata.agentId, 
-          metadata.sessionId, 
+          metadata.agentId,
+          metadata.sessionId,
           request.messages,
           request.metadata?.forceSunrise
         );
@@ -208,13 +259,16 @@ export class Pearl {
 
       // 5. Route to appropriate backend
       const routing = await this.routeRequest(augmentedRequest.messages, metadata.agentId);
+      console.log(`[Pearl] Routed: ${request.model} → ${routing.model} (rule: ${routing.rule}, complexity: ${routing.classification.complexity}, type: ${routing.classification.type})`);
 
       // 6. Forward to backend and stream response
       let assistantResponse = '';
       const modifiedRequest = {
         ...request,
         model: routing.model,
-        messages: augmentedRequest.messages,
+        messages: convertMessagesToBackend(augmentedRequest.messages),
+        // Pass routing metadata for logging
+        _routing: routing,
       };
 
       for await (const chunk of this.forwardToBackend(routing.model, modifiedRequest)) {
@@ -233,7 +287,7 @@ export class Pearl {
           };
           this.queueMemoryExtraction(metadata.agentId, metadata.sessionId, assistantMessage);
         }
-        
+
         // Log conversation to transcript for future sunrise recovery
         if (chunk.choices?.[0]?.finishReason && this.transcriptLogger) {
           await this.logConversationToTranscript(
@@ -297,7 +351,7 @@ export class Pearl {
    * Route request to appropriate backend model
    */
   private async routeRequest(messages: ChatMessage[], agentId?: string): Promise<RoutingResult> {
-    return await this.router.route(messages, agentId);
+    return await this.router.route(convertMessagesToBackend(messages), agentId);
   }
 
   /**
@@ -322,7 +376,7 @@ export class Pearl {
    * Determine backend from model name
    */
   private getBackendFromModel(model: string): string {
-    if (model.startsWith('anthropic/') || model.startsWith('claude')) {
+    if (model.startsWith('anthropic-max/') || model.startsWith('anthropic/') || model.startsWith('claude')) {
       return 'anthropic';
     }
     if (model.startsWith('openai/') || model.startsWith('gpt')) {
@@ -394,12 +448,13 @@ export class Pearl {
 
       if (result.memories && result.memories.length > 0) {
         for (const memory of result.memories) {
-          await this.memoryStore.create(item.agentId, {
+          await this.memoryStore.create({
+            agent_id: item.agentId,
             type: memory.type,
             content: memory.content,
             tags: memory.tags,
-            sourceSession: item.sessionId,
-            sourceMessageId: uuidv7(),
+            source_session: item.sessionId,
+            source_message_id: uuidv7(),
           });
         }
       }
@@ -442,7 +497,9 @@ export class Pearl {
       // Log user messages
       for (const message of userMessages) {
         if (message.role === 'user') {
-          await this.transcriptLogger.log(agentId, sessionId, {
+          await this.transcriptLogger.log({
+            agentId,
+            sessionId,
             role: 'user',
             content: message.content,
             timestamp: Date.now(),
@@ -453,7 +510,9 @@ export class Pearl {
 
       // Log assistant response
       if (assistantResponse.trim()) {
-        await this.transcriptLogger.log(agentId, sessionId, {
+        await this.transcriptLogger.log({
+          agentId,
+          sessionId,
           role: 'assistant',
           content: assistantResponse,
           timestamp: Date.now(),

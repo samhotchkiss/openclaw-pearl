@@ -1,0 +1,40 @@
+# Pearl Test Configuration (Ollama only)
+server:
+  port: 8787
+  host: 0.0.0.0
+  cors: true
+
+memory:
+  store: sqlite
+  path: ~/.pearl/memories.db
+
+extraction:
+  enabled: true
+  model: ollama/llama3.2:1b
+  async: true
+  extract_from_assistant: false
+  min_confidence: 0.7
+
+embedding:
+  provider: ollama
+  model: nomic-embed-text
+  dimensions: 768
+  base_url: http://localhost:11434
+
+retrieval:
+  max_memories: 10
+  min_similarity: 0.5
+  token_budget: 500
+  recency_boost: true
+
+routing:
+  classifier: ollama/llama3.2:1b
+  default_model: ollama/llama3.2:1b
+  rules: []
+
+backends:
+  ollama:
+    base_url: http://localhost:11434
+
+logging:
+  level: info
