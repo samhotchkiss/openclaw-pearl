@@ -116,11 +116,16 @@ describe('E2E: SSE Streaming', () => {
     },
     routing: {
       classifier: 'ollama/llama3.2:3b',
-      defaultModel: 'anthropic/claude-sonnet-4-20250514',
-      rules: [],
+      defaultModel: 'mock/test-model',
+      rules: [{
+        name: 'default',
+        match: { default: true },
+        model: 'mock/test-model',
+        priority: 1,
+      }],
     },
     backends: {
-      anthropic: { apiKey: 'test-key' },
+      mock: { enabled: true },
     },
   });
 

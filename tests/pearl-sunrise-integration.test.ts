@@ -16,7 +16,7 @@ vi.mock('../src/memory/augmenter.js');
 vi.mock('../src/routing/router.js', () => ({
   ModelRouter: vi.fn().mockImplementation(() => ({
     route: vi.fn().mockResolvedValue({
-      model: 'anthropic/claude-sonnet-4-20250514',
+      model: 'mock/test-model',
       classification: {
         complexity: 'medium',
         type: 'chat',
@@ -70,6 +70,7 @@ describe('Pearl Sunrise Integration', () => {
         rules: [],
       },
       backends: {
+        mock: { enabled: true },
         ollama: {
           base_url: 'http://localhost:11434',
         },
