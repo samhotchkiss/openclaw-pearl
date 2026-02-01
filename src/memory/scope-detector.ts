@@ -78,7 +78,6 @@ const DEFAULT_RULES: Required<ScopeRules> = {
   },
   channelMapping: {
     'main': 'global',
-    'general': 'global',
     'family': 'global',
     'personal': 'global',
   },
@@ -113,7 +112,7 @@ const DEFAULT_RULES: Required<ScopeRules> = {
     'API', 'database', 'server',
     
     // Communication
-    'email', 'message', 'response', 'reply', 'notification',
+    'email', 'message', 'reply', 'notification',
   ],
   agentNames: [
     'nova',      // AI updates agent
@@ -149,7 +148,7 @@ export class ScopeDetector {
     const explicitResult = this.checkExplicitMarkers(content);
     if (explicitResult) {
       signals.push({
-        score: 0.95,
+        score: 0.98,
         scope: explicitResult.scope,
         targetAgentId: explicitResult.targetAgentId,
         reason: `explicit marker: "${explicitResult.marker}"`,
@@ -178,9 +177,11 @@ export class ScopeDetector {
     // 4. Check workflow keywords
     const workflowResult = this.checkWorkflowKeywords(content);
     if (workflowResult) {
+      const targetAgent = this.inferAgentFromKeywords(workflowResult.keywords);
       signals.push({
-        score: 0.5,
-        scope: 'inferred',
+        score: 0.8,
+        scope: targetAgent ? 'agent' : 'inferred',
+        targetAgentId: targetAgent,
         reason: `workflow keywords: ${workflowResult.keywords.join(', ')}`,
       });
     }
@@ -328,25 +329,7 @@ export class ScopeDetector {
     targetAgentId?: string;
     reason: string;
   } | null {
-    // Check direct channel mapping
-    const mapping = this.rules.channelMapping[context.channel];
-    if (mapping) {
-      if (mapping === 'global') {
-        return {
-          scope: 'global',
-          reason: `channel "${context.channel}" mapped to global`,
-        };
-      } else if (mapping.startsWith('agent:')) {
-        const targetAgentId = mapping.substring(6); // Remove 'agent:' prefix
-        return {
-          scope: 'agent',
-          targetAgentId,
-          reason: `channel "${context.channel}" mapped to agent ${targetAgentId}`,
-        };
-      }
-    }
-
-    // Infer from channel type
+    // Prioritize specific channel type information when available
     if (context.channelType === 'dm' && context.channel === 'main') {
       return {
         scope: 'global',
@@ -369,6 +352,24 @@ export class ScopeDetector {
         targetAgentId: agentFromChannel,
         reason: `project channel "${context.channel}" inferred for agent ${agentFromChannel}`,
       };
+    }
+
+    // Fall back to direct channel mapping
+    const mapping = this.rules.channelMapping[context.channel];
+    if (mapping) {
+      if (mapping === 'global') {
+        return {
+          scope: 'global',
+          reason: `channel "${context.channel}" mapped to global`,
+        };
+      } else if (mapping.startsWith('agent:')) {
+        const targetAgentId = mapping.substring(6); // Remove 'agent:' prefix
+        return {
+          scope: 'agent',
+          targetAgentId,
+          reason: `channel "${context.channel}" mapped to agent ${targetAgentId}`,
+        };
+      }
     }
 
     return null;
@@ -417,9 +418,38 @@ export class ScopeDetector {
 
     // Personal information (names, addresses, health) is usually global
     if (this.containsPersonalInfo(content)) {
+      // Provide specific reasons based on memory type
+      if (type === 'fact') {
+        return {
+          scope: 'global',
+          reason: 'personal facts typically global',
+        };
+      } else if (type === 'health') {
+        return {
+          scope: 'global',
+          reason: 'health information typically global',
+        };
+      } else {
+        return {
+          scope: 'global',
+          reason: 'personal information typically applies globally',
+        };
+      }
+    }
+
+    // Provide specific reasons for certain types
+    if (type === 'preference') {
       return {
         scope: 'global',
-        reason: 'personal information typically applies globally',
+        reason: 'user preferences typically global',
+      };
+    }
+
+    // Check for generic/unclear content
+    if (this.isGenericContent(content)) {
+      return {
+        scope: 'global',
+        reason: 'default scope for unclear content',
       };
     }
 
@@ -459,6 +489,17 @@ export class ScopeDetector {
     return personalPatterns.some(pattern => pattern.test(content));
   }
 
+  private isGenericContent(content: string): boolean {
+    const lowerContent = content.toLowerCase();
+    const genericPatterns = [
+      'random fact',
+      'something',
+      'this is',
+    ];
+    
+    return genericPatterns.some(pattern => lowerContent.includes(pattern));
+  }
+
   private checkWorkflowKeywords(content: string): {
     keywords: string[];
   } | null {
@@ -472,6 +513,37 @@ export class ScopeDetector {
     }
 
     return foundKeywords.length > 0 ? { keywords: foundKeywords } : null;
+  }
+
+  private inferAgentFromKeywords(keywords: string[]): string | undefined {
+    const lowerKeywords = keywords.map(k => k.toLowerCase());
+    
+    // Writing/blog keywords -> tex
+    if (lowerKeywords.some(k => ['blog post', 'writing', 'article', 'draft', 'publish', 'content', 'newsletter', 'substack', 'editorial'].includes(k))) {
+      return 'tex';
+    }
+    
+    // Trading/finance keywords -> trey
+    if (lowerKeywords.some(k => ['trade', 'trading', 'portfolio', 'investment', 'position', 'stock', 'crypto', 'market', 'financial'].includes(k))) {
+      return 'trey';
+    }
+    
+    // Social media keywords -> linc
+    if (lowerKeywords.some(k => ['twitter', 'linkedin', 'post', 'tweet', 'social', 'engagement', 'follower', 'hashtag'].includes(k))) {
+      return 'linc';
+    }
+    
+    // AI/research keywords -> nova
+    if (lowerKeywords.some(k => ['research', 'paper', 'arxiv', 'dataset', 'model', 'algorithm', 'ai', 'machine learning', 'ml'].includes(k))) {
+      return 'nova';
+    }
+    
+    // Development keywords -> main (fallback for dev tasks)
+    if (lowerKeywords.some(k => ['code', 'programming', 'debug', 'repository', 'commit', 'deploy', 'api', 'database', 'server'].includes(k))) {
+      return 'main';
+    }
+    
+    return undefined;
   }
 
   private combineSignals(
@@ -494,6 +566,18 @@ export class ScopeDetector {
 
     // Calculate confidence based on signal strength and agreement
     let confidence = topSignal.score;
+
+    // If we only have weak content-type signals, reduce confidence
+    const hasStrongSignals = signals.some(s => s.score >= 0.75);
+    if (!hasStrongSignals && signals.length === 1 && topSignal.score <= 0.6) {
+      confidence = Math.min(confidence, 0.6);
+    }
+
+    // Further reduce confidence for empty content
+    const hasContent = signals.some(s => s.reason.includes('contains') || s.reason.includes('personal') || s.reason.includes('workflow'));
+    if (!hasContent && signals.some(s => s.reason.includes('default'))) {
+      confidence = Math.min(confidence, 0.4);
+    }
 
     // Boost confidence if multiple signals agree
     const agreeingSignals = signals.filter(s => 
