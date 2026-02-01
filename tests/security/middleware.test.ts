@@ -25,7 +25,7 @@ describe('SecurityMiddleware', () => {
         sensitivity: 'medium',
         patterns: {
           instructionOverride: [
-            /ignore\s+(all\s+)?(previous|prior|above)\s+instructions?/i
+            /ignore\s+(all\s+)?((previous|prior|above|security)\s+)?(instructions?|restrictions?)/i
           ],
           roleManipulation: [
             /you\s+are\s+now\s+/i

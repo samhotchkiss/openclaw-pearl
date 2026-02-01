@@ -29,6 +29,10 @@ export class SecurityMiddleware {
   private securityEvents: SecurityEvent[] = [];
   private metrics!: SecurityMetrics;
   
+  // User/session tracking for risk scoring and rate limiting
+  private userRiskScores = new Map<string, number>();
+  private sessionAttemptCounts = new Map<string, { count: number; lastAttempt: number; attempts: string[] }>();
+  
   // Response filtering patterns
   private responseFilters: ResponseFilter[] = [
     {
@@ -181,8 +185,14 @@ export class SecurityMiddleware {
         };
       }
 
+      // Track this attempt for rate limiting and risk scoring
+      this.trackUserAttempt(securityContext, userMessage);
+
       // Run security analysis
-      const detectionResult = await this.analyzeMessage(userMessage, securityContext);
+      let detectionResult = await this.analyzeMessage(userMessage, securityContext);
+
+      // Check for rate limiting
+      detectionResult = this.checkRateLimit(detectionResult, securityContext);
 
       // Update metrics
       this.updateMetrics(detectionResult);
@@ -267,6 +277,22 @@ export class SecurityMiddleware {
 
   private extractSecurityContext(request: ChatRequest): SecurityContext {
     const metadata = request.metadata || {};
+    const userId = metadata.userId;
+    const sessionId = metadata.sessionId;
+    
+    // Calculate risk score based on user history
+    let riskScore = 0;
+    if (userId) {
+      riskScore = this.userRiskScores.get(userId) || 0;
+    }
+    
+    // Track session attempt counts for rate limiting
+    if (sessionId) {
+      const sessionData = this.sessionAttemptCounts.get(sessionId);
+      if (sessionData) {
+        riskScore = Math.max(riskScore, sessionData.count * 0.2); // Increase risk with attempts
+      }
+    }
     
     return {
       userId: metadata.userId,
@@ -274,8 +300,8 @@ export class SecurityMiddleware {
       sessionId: metadata.sessionId,
       isAdmin: metadata.isAdmin || false,
       timestamp: metadata.timestamp || Date.now(),
-      sessionHistory: [], // TODO: Implement session history tracking
-      riskScore: 0, // TODO: Implement risk scoring
+      sessionHistory: [], // TODO: Implement session history tracking  
+      riskScore,
       emergencyBypass: metadata.emergencyBypass
     };
   }
@@ -355,6 +381,77 @@ export class SecurityMiddleware {
     ];
 
     return adminInjectionPatterns.some(pattern => pattern.test(message));
+  }
+
+  private trackUserAttempt(context: SecurityContext, message: string): void {
+    // Update user risk score based on this attempt
+    if (context.userId) {
+      const currentRisk = this.userRiskScores.get(context.userId) || 0;
+      // Increase risk for suspicious patterns
+      let riskIncrease = 0;
+      const lowerMessage = message.toLowerCase();
+      
+      if (lowerMessage.includes('ignore')) riskIncrease += 0.3;
+      if (lowerMessage.includes('override')) riskIncrease += 0.3;
+      if (lowerMessage.includes('show') || lowerMessage.includes('reveal')) riskIncrease += 0.25;
+      if (lowerMessage.includes('secret')) riskIncrease += 0.25;
+      if (lowerMessage.includes('instruction')) riskIncrease += 0.2;
+      
+      if (riskIncrease > 0) {
+        this.userRiskScores.set(context.userId, Math.min(currentRisk + riskIncrease, 1.0));
+      }
+    }
+
+    // Track session attempts for rate limiting
+    if (context.sessionId) {
+      const sessionData = this.sessionAttemptCounts.get(context.sessionId) || {
+        count: 0,
+        lastAttempt: Date.now(),
+        attempts: []
+      };
+
+      sessionData.count++;
+      sessionData.lastAttempt = Date.now();
+      sessionData.attempts.push(message);
+      
+      // Keep only recent attempts (last 10)
+      if (sessionData.attempts.length > 10) {
+        sessionData.attempts = sessionData.attempts.slice(-10);
+      }
+
+      this.sessionAttemptCounts.set(context.sessionId, sessionData);
+    }
+  }
+
+  private checkRateLimit(result: DetectionResult, context: SecurityContext): DetectionResult {
+    if (!context.sessionId) {
+      return result;
+    }
+
+    const sessionData = this.sessionAttemptCounts.get(context.sessionId);
+    if (!sessionData) {
+      return result;
+    }
+
+    // Check if this session has made too many attempts
+    const recentTimeWindow = 5 * 60 * 1000; // 5 minutes
+    const maxAttempts = 3;
+    
+    if (sessionData.count > maxAttempts && 
+        (Date.now() - sessionData.lastAttempt) < recentTimeWindow) {
+      
+      return {
+        severity: 'CRITICAL',
+        action: 'block',
+        threats: result.threats.length > 0 ? result.threats : ['rate_limit'],
+        confidence: Math.max(result.confidence, 0.9),
+        reasoning: `Rate limit exceeded: ${sessionData.count} attempts in session`,
+        strategy: result.strategy,
+        contextFactors: [...(result.contextFactors || []), 'rate_limit_exceeded']
+      };
+    }
+
+    return result;
   }
 
   private shouldBlockRequest(result: DetectionResult): boolean {
