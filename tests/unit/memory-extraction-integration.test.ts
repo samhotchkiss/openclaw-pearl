@@ -200,7 +200,8 @@ describe('Memory Extraction Integration', () => {
       };
 
       const extractor = new MemoryExtractor(config);
-      const result = await extractor.extract('This will fail');
+      // Use a message that will definitely trigger LLM extraction (has substantive content)
+      const result = await extractor.extract('My name is Alice and I prefer coffee over tea every morning');
 
       expect(result.memories).toHaveLength(0);
       expect(result.error).toBeDefined();
@@ -220,7 +221,8 @@ describe('Memory Extraction Integration', () => {
       };
 
       const extractor = new MemoryExtractor(config);
-      const result = await extractor.extract('Test message');
+      // Use a substantive message that won't be considered trivial
+      const result = await extractor.extract('I work at Google and my favorite programming language is TypeScript');
 
       expect(result.memories).toHaveLength(0);
       expect(result.error).toBeDefined();
