@@ -108,7 +108,7 @@ export class SQLiteUsageStore implements UsageStore {
       timestampMs,
       record.metadata?.type,
       record.metadata?.complexity,
-      record.metadata?.sensitive ? 1 : 0,
+      record.metadata && record.metadata.hasOwnProperty('sensitive') ? (record.metadata.sensitive ? 1 : 0) : null,
       record.metadata?.sessionId,
       metadataCustom
     );
@@ -425,7 +425,7 @@ export class SQLiteUsageStore implements UsageStore {
     
     if (row.metadata_type) metadata.type = row.metadata_type;
     if (row.metadata_complexity) metadata.complexity = row.metadata_complexity;
-    if (row.metadata_sensitive) metadata.sensitive = row.metadata_sensitive === 1;
+    if (row.metadata_sensitive !== null) metadata.sensitive = row.metadata_sensitive === 1;
     if (row.metadata_session_id) metadata.sessionId = row.metadata_session_id;
     
     if (row.metadata_custom) {
@@ -437,10 +437,9 @@ export class SQLiteUsageStore implements UsageStore {
       }
     }
 
-    return {
+    const result: any = {
       id: row.id,
       accountId: row.account_id,
-      agentId: row.agent_id,
       model: row.model,
       provider: row.provider,
       usage: {
@@ -449,8 +448,19 @@ export class SQLiteUsageStore implements UsageStore {
         totalTokens: row.total_tokens
       },
       cost: row.cost,
-      timestamp: new Date(row.timestamp),
-      metadata: Object.keys(metadata).length > 0 ? metadata : undefined
+      timestamp: new Date(row.timestamp)
     };
+
+    // Only include agentId if it's not null
+    if (row.agent_id !== null) {
+      result.agentId = row.agent_id;
+    }
+
+    // Only include metadata if it has properties
+    if (Object.keys(metadata).length > 0) {
+      result.metadata = metadata;
+    }
+
+    return result as UsageRecord;
   }
 }
