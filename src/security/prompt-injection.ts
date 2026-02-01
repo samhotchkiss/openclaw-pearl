@@ -70,7 +70,7 @@ const DEFAULT_PATTERNS: Required<PatternConfig> = {
   
   secretExtraction: [
     /(show|print|display|output|reveal|give)\s*.{0,20}(config|token|key|secret|password|credential|env)/i,
-    /(what('s| is)|tell me)\s*.{0,10}(api[_-]?key|token|secret|password)/i,
+    /(what('s| is)|tell me)\s*.{0,10}(api[\s_-]?key|token|secret|password)/i,
     /cat\s+.{0,30}(config|\.env|credential|secret|token)/i,
     /echo\s+\$[A-Z_]*(KEY|TOKEN|SECRET|PASSWORD)/i,
     /printenv\s*.*(KEY|TOKEN|SECRET|PASSWORD)/i,
