@@ -67,14 +67,11 @@ export class UsageTracker implements IUsageTracker {
       limit?: number;
     }
   ): Promise<UsageRecord[]> {
-    const query: UsageQuery = {
-      accountId,
-      startDate: options?.startDate,
-      endDate: options?.endDate,
-      limit: options?.limit,
-      sortBy: 'timestamp',
-      sortOrder: 'desc'
-    };
+    const query: any = { accountId };
+    
+    if (options?.startDate !== undefined) query.startDate = options.startDate;
+    if (options?.endDate !== undefined) query.endDate = options.endDate;
+    if (options?.limit !== undefined) query.limit = options.limit;
 
     return await this.store.query(query);
   }
@@ -90,14 +87,11 @@ export class UsageTracker implements IUsageTracker {
       limit?: number;
     }
   ): Promise<UsageRecord[]> {
-    const query: UsageQuery = {
-      agentId,
-      startDate: options?.startDate,
-      endDate: options?.endDate,
-      limit: options?.limit,
-      sortBy: 'timestamp',
-      sortOrder: 'desc'
-    };
+    const query: any = { agentId };
+    
+    if (options?.startDate !== undefined) query.startDate = options.startDate;
+    if (options?.endDate !== undefined) query.endDate = options.endDate;
+    if (options?.limit !== undefined) query.limit = options.limit;
 
     return await this.store.query(query);
   }
@@ -114,15 +108,11 @@ export class UsageTracker implements IUsageTracker {
       limit?: number;
     }
   ): Promise<UsageRecord[]> {
-    const query: UsageQuery = {
-      startDate,
-      endDate,
-      accountId: options?.accountId,
-      agentId: options?.agentId,
-      limit: options?.limit,
-      sortBy: 'timestamp',
-      sortOrder: 'desc'
-    };
+    const query: any = { startDate, endDate };
+    
+    if (options?.accountId !== undefined) query.accountId = options.accountId;
+    if (options?.agentId !== undefined) query.agentId = options.agentId;
+    if (options?.limit !== undefined) query.limit = options.limit;
 
     return await this.store.query(query);
   }

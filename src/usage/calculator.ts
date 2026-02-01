@@ -206,7 +206,10 @@ export class CostCalculator implements ICostCalculator {
       cacheCost = (cacheTokens * pricing.cacheCostPer1kTokens) / 1000;
     }
 
-    return inputCost + outputCost + cacheCost;
+    const totalCost = inputCost + outputCost + cacheCost;
+    
+    // Round to 10 decimal places to avoid floating-point precision issues
+    return Math.round(totalCost * 10000000000) / 10000000000;
   }
 
   /**
