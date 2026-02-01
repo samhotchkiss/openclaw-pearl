@@ -191,8 +191,9 @@ function startTailing(fromByte: number) {
       if (currentSize > lastSize) {
         const stream = createReadStream(LOG_PATH, { start: lastSize, encoding: 'utf-8' });
         let buffer = '';
-        stream.on('data', (chunk: string) => {
-          buffer += chunk;
+        stream.on('data', (chunk: string | Buffer) => {
+          const chunkStr = typeof chunk === 'string' ? chunk : chunk.toString('utf-8');
+          buffer += chunkStr;
           const lines = buffer.split('\n');
           buffer = lines.pop() || ''; // Keep incomplete line in buffer
           for (const line of lines) {

@@ -256,9 +256,13 @@ export class CostCalculator implements ICostCalculator {
    * Update cost configuration
    */
   updateConfig(newConfig: Partial<CostConfig>): void {
+    const filteredNewConfig = Object.fromEntries(
+      Object.entries(newConfig).filter(([_, value]) => value !== undefined)
+    ) as CostConfig;
+    
     this.costConfig = {
       ...this.costConfig,
-      ...newConfig
+      ...filteredNewConfig
     };
   }
 

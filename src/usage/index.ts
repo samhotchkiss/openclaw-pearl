@@ -21,20 +21,24 @@ export { UsageTracker } from './tracker.js';
 export { CostCalculator, DEFAULT_COST_CONFIG } from './calculator.js';
 export { SQLiteUsageStore } from './sqlite-store.js';
 
+import { UsageTracker as UsageTrackerClass } from './tracker.js';
+import { CostCalculator as CostCalculatorClass } from './calculator.js';
+import { SQLiteUsageStore as SQLiteUsageStoreClass } from './sqlite-store.js';
+
 // Convenience function to create a usage tracking system
 export function createUsageTracker(options: {
   dbPath?: string;
   costConfig?: import('./types.js').CostConfig;
 }): {
-  tracker: UsageTracker;
-  calculator: CostCalculator;
-  store: SQLiteUsageStore;
+  tracker: UsageTrackerClass;
+  calculator: CostCalculatorClass;
+  store: SQLiteUsageStoreClass;
 } {
   const { dbPath = 'usage.db', costConfig } = options;
   
-  const store = new SQLiteUsageStore(dbPath);
-  const calculator = new CostCalculator(costConfig);
-  const tracker = new UsageTracker(store);
+  const store = new SQLiteUsageStoreClass(dbPath);
+  const calculator = new CostCalculatorClass(costConfig);
+  const tracker = new UsageTrackerClass(store);
   
   return { tracker, calculator, store };
 }

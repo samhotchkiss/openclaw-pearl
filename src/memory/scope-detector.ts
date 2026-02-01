@@ -212,12 +212,12 @@ export class ScopeDetector {
     return {
       explicitMarkers: {
         global: [
-          ...base.explicitMarkers.global,
-          ...(custom.explicitMarkers?.global || []),
+          ...(base.explicitMarkers?.global ?? []),
+          ...(custom.explicitMarkers?.global ?? []),
         ],
         agent: [
-          ...base.explicitMarkers.agent,
-          ...(custom.explicitMarkers?.agent || []),
+          ...(base.explicitMarkers?.agent ?? []),
+          ...(custom.explicitMarkers?.agent ?? []),
         ],
       },
       channelMapping: {
@@ -247,14 +247,14 @@ export class ScopeDetector {
     const lowerContent = content.toLowerCase();
 
     // Check global markers
-    for (const marker of this.rules.explicitMarkers.global) {
+    for (const marker of this.rules.explicitMarkers?.global || []) {
       if (lowerContent.includes(marker.toLowerCase())) {
         return { scope: 'global', marker };
       }
     }
 
     // Check agent-specific markers
-    for (const marker of this.rules.explicitMarkers.agent) {
+    for (const marker of this.rules.explicitMarkers?.agent || []) {
       if (lowerContent.includes(marker.toLowerCase())) {
         // Try to extract target agent name from the content
         const targetAgent = this.extractTargetAgent(content);

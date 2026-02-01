@@ -57,7 +57,8 @@ export { Pearl } from './pearl.js';
 // Routing exports
 export { ModelRouter } from './routing/router.js';
 export type { RoutingResult, RouterOptions } from './routing/router.js';
-export type { RequestClassification, RoutingRule } from './routing/types.js';
+export type { RequestClassification } from './routing/types.js';
+export type { RoutingRule } from './config/types.js';
 
 // Optimization exports
 export { PromptRewriter } from './optimization/rewriter.js';

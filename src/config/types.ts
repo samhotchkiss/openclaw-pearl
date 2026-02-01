@@ -51,17 +51,18 @@ export interface RoutingConfig {
   rules: RoutingRule[];
 }
 
-export interface BackendConfig {
+export interface ProviderConfig {
   api_key?: string;
   base_url?: string;
+  credentials_file?: string;
   [key: string]: any;
 }
 
 export interface BackendsConfig {
-  anthropic: BackendConfig;
-  openai: BackendConfig;
-  ollama: BackendConfig;
-  [key: string]: BackendConfig;
+  anthropic: ProviderConfig;
+  openai: ProviderConfig;
+  ollama: ProviderConfig;
+  [key: string]: ProviderConfig;
 }
 
 export interface LoggingConfig {

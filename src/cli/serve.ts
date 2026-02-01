@@ -5,7 +5,7 @@
 
 import { Command } from 'commander';
 import { resolve } from 'path';
-import { loadConfig } from '../config/loader.js';
+import { loadConfig, normalizeConfig } from '../config/index.js';
 import { createServer } from '../server/index.js';
 import { Pearl } from '../pearl.js';
 import type { Config } from '../config/types.js';
@@ -54,8 +54,11 @@ export async function runServe(options: ServeOptions): Promise<void> {
 
   console.log('Initializing Pearl orchestrator...');
   
-  // Create Pearl instance with config
-  const pearl = new Pearl(config);
+  // Normalize config from snake_case to camelCase
+  const normalizedConfig = normalizeConfig(config);
+  
+  // Create Pearl instance with normalized config
+  const pearl = new Pearl(normalizedConfig);
   await pearl.initialize();
   console.log('Pearl orchestrator initialized');
   

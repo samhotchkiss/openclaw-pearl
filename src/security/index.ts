@@ -20,6 +20,7 @@
 export { PromptInjectionDetector } from './prompt-injection.js';
 export { LLMInjectionDetector } from './llm-detection.js';
 export { SecurityMiddleware } from './middleware.js';
+import { SecurityMiddleware as SecurityMiddlewareClass } from './middleware.js';
 
 // Type definitions
 export type {
@@ -307,7 +308,7 @@ export function createSecurityMiddleware(config: Partial<import('./types.js').Se
     console.warn('Security configuration warnings:', validation.warnings.map(w => w.message).join(', '));
   }
 
-  return new SecurityMiddleware(mergedConfig);
+  return new SecurityMiddlewareClass(mergedConfig);
 }
 
 /**
