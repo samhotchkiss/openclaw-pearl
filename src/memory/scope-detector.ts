@@ -596,6 +596,12 @@ export class ScopeDetector {
       confidence = Math.max(0.1, confidence - 0.1 * conflictingSignals.length);
     }
 
+    // Ensure explicit markers maintain high confidence (minimum 0.95)
+    const isExplicitMarker = topSignal.reason.includes('explicit marker');
+    if (isExplicitMarker) {
+      confidence = Math.max(confidence, 0.95);
+    }
+
     // Build reasoning
     const reasons = signals.slice(0, 3).map(s => s.reason);
     const reasoning = reasons.join('; ');
