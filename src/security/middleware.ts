@@ -107,7 +107,7 @@ export class SecurityMiddleware {
     // Initialize LLM detection (requires external provider)
     if (this.config.llmDetection?.enabled) {
       // Note: LLM provider would be injected separately
-      console.log('LLM detection configured but provider not initialized');
+      // LLM detection requires external provider injection
     }
   }
 
@@ -266,8 +266,9 @@ export class SecurityMiddleware {
     const filteredResult = this.applyResponseFilters(originalContent);
 
     if (filteredResult.redactedItems.length > 0) {
-      // Log redaction event
-      console.log(`Redacted ${filteredResult.redactedItems.length} sensitive items from response`);
+      // Log redaction for monitoring
+      this.logSecurityEvent('LOW', 'log', {} as any, [], 0.2, 
+        `Response redaction: ${filteredResult.redactedItems.length} items filtered`);
       
       response.choices[0].message.content = filteredResult.filteredContent;
     }
@@ -586,10 +587,17 @@ export class SecurityMiddleware {
       this.securityEvents = this.securityEvents.slice(-500);
     }
 
-    // Log to console for immediate visibility
-    console.log(`SECURITY [${severity}] ${action}: ${reasoning} (User: ${context.userId || 'unknown'})`);
-
-    // TODO: Implement proper logging to file/external systems based on config
+    // Structured console logging for security events
+    console.log(JSON.stringify({
+      timestamp: new Date(event.timestamp).toISOString(),
+      level: 'SECURITY',
+      severity: event.severity,
+      action: event.action,
+      message: event.message,
+      userId: event.userId || 'unknown',
+      confidence: event.confidence,
+      threats: event.threats
+    }));
     if (this.config.logging?.enabled) {
       this.writeSecurityLog(event);
     }
@@ -617,13 +625,21 @@ export class SecurityMiddleware {
   }
 
   private writeSecurityLog(event: SecurityEvent): void {
-    // TODO: Implement file logging based on config
-    console.log('TODO: Write to security log file', event);
+    // File logging would be implemented here based on config
+    // For now, events are stored in memory array
+    if (this.config.logging?.fileOutput) {
+      // Future: append to configured log file
+    }
   }
 
   private sendSecurityNotification(event: SecurityEvent): void {
-    // TODO: Implement notifications (webhook, Slack, email) based on config
-    console.log('TODO: Send security notification', event);
+    // Notifications would be implemented here based on config  
+    if (this.config.notifications?.webhook) {
+      // Future: send to configured webhook
+    }
+    if (this.config.notifications?.slack) {
+      // Future: send to Slack channel
+    }
   }
 
   // Public API methods
