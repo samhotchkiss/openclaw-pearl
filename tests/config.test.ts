@@ -9,6 +9,9 @@ const TEST_CONFIG_DIR = '/tmp/pearl-test-config';
 const TEST_CONFIG_PATH = `${TEST_CONFIG_DIR}/pearl.yaml`;
 
 describe('Config System', () => {
+  // Store original environment variables to restore after tests
+  let originalEnvVars: Record<string, string | undefined> = {};
+
   beforeEach(() => {
     // Clean up any existing test config
     if (existsSync(TEST_CONFIG_DIR)) {
@@ -16,10 +19,21 @@ describe('Config System', () => {
     }
     mkdirSync(TEST_CONFIG_DIR, { recursive: true });
     
-    // Clear environment variables
+    // Store original environment variables
+    originalEnvVars = {
+      TEST_API_KEY: process.env.TEST_API_KEY,
+      PEARL_PORT: process.env.PEARL_PORT,
+      PEARL_HOST: process.env.PEARL_HOST,
+      OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+    };
+    
+    // Clear environment variables for clean test environment
     delete process.env.TEST_API_KEY;
     delete process.env.PEARL_PORT;
     delete process.env.PEARL_HOST;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
   });
 
   afterEach(() => {
@@ -28,10 +42,14 @@ describe('Config System', () => {
       rmSync(TEST_CONFIG_DIR, { recursive: true, force: true });
     }
     
-    // Clear test environment variables
-    delete process.env.TEST_API_KEY;
-    delete process.env.PEARL_PORT;
-    delete process.env.PEARL_HOST;
+    // Restore original environment variables
+    Object.entries(originalEnvVars).forEach(([key, value]) => {
+      if (value !== undefined) {
+        process.env[key] = value;
+      } else {
+        delete process.env[key];
+      }
+    });
   });
 
   describe('getDefaults()', () => {
