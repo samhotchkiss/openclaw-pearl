@@ -6,6 +6,7 @@
 export { AnthropicClient } from './anthropic.js';
 export { OpenAIClient } from './openai.js';
 export { OllamaClient } from './ollama.js';
+export { MockBackend } from './mock.js';
 
 export * from './types.js';
 
@@ -13,6 +14,7 @@ export * from './types.js';
 import { AnthropicClient } from './anthropic.js';
 import { OpenAIClient } from './openai.js';
 import { OllamaClient } from './ollama.js';
+import { MockBackend } from './mock.js';
 import type { BackendClient } from './types.js';
 import type { ProviderConfig } from '../config/types.js';
 
@@ -32,6 +34,8 @@ export function createBackendClient(provider: string, config: ProviderConfig): B
       return new OpenAIClient(normalizedConfig);
     case 'ollama':
       return new OllamaClient(normalizedConfig);
+    case 'mock':
+      return new MockBackend();
     default:
       throw new Error(`Unsupported backend provider: ${provider}`);
   }

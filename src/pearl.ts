@@ -99,8 +99,11 @@ export class Pearl {
       const embeddingService = new EmbeddingService(this.config.embedding);
 
       // Initialize memory components
+      const extractionProvider = this.config.extraction.model.startsWith('ollama/') ? 'ollama' 
+        : this.config.extraction.model.startsWith('mock/') ? 'mock'
+        : 'anthropic';
       const llmProviderConfig = {
-        provider: this.config.extraction.model.startsWith('ollama/') ? 'ollama' : 'anthropic',
+        provider: extractionProvider,
         model: this.config.extraction.model,
         baseUrl: this.config.backends.ollama?.baseUrl,
         apiKey: this.config.backends.anthropic?.apiKey,
@@ -182,14 +185,14 @@ export class Pearl {
         }
       }
 
-      // Check if there's a mock backend configuration (for testing)
-      if (this.config.backends?.mock) {
-        // Import MockBackend from test helpers if available
+      // Add mock backend for testing
+      if (this.config.backends?.mock?.enabled) {
         try {
-          const { MockBackend } = await import('../tests/setup/test-helpers.js');
+          const { MockBackend } = await import('./backends/mock.js');
           this.backends.set('mock', new MockBackend());
+          console.log('[Pearl] Mock backend registered successfully');
         } catch (error) {
-          // Mock backend not available (probably not in test environment)
+          console.warn('Failed to initialize Mock backend:', error);
         }
       }
 
@@ -409,7 +412,7 @@ export class Pearl {
     if (model.startsWith('openrouter/')) {
       return 'openrouter';
     }
-    if (model.startsWith('mock/') || model === 'pearl') {
+    if (model.startsWith('mock/') || model === 'pearl' || model === 'test-model') {
       return 'mock';
     }
 
