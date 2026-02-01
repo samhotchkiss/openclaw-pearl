@@ -178,6 +178,11 @@ export class MemoryExtractor {
       // Call the LLM provider
       const result = await this.provider.extract(message);
 
+      // Check if the provider returned an error
+      if (result.error) {
+        return { memories: [], error: result.error };
+      }
+
       // Validate and filter the response
       const validatedMemories = this.validateAndFilter(result.memories);
 
