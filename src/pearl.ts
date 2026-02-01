@@ -12,6 +12,7 @@ import { EmbeddingService } from './memory/embeddings.js';
 import { ModelRouter } from './routing/router.js';
 import { RuleEngine, createRulesFromConfig } from './routing/rules.js';
 import { createBackendClient } from './backends/index.js';
+import { createLogger } from './utils/logger.js';
 import type {
   PearlConfig,
   ChatRequest,
@@ -57,6 +58,7 @@ function convertMessagesToBackend(messages: ChatMessage[]): Message[] {
 export class Pearl {
   private config: PearlConfig;
   private initialized = false;
+  private logger = createLogger('pearl');
 
   // Core components
   private memoryStore!: MemoryStore;
@@ -259,7 +261,15 @@ export class Pearl {
 
       // 5. Route to appropriate backend
       const routing = await this.routeRequest(augmentedRequest.messages, metadata.agentId);
-      console.log(`[Pearl] Routed: ${request.model} → ${routing.model} (rule: ${routing.rule}, complexity: ${routing.classification.complexity}, type: ${routing.classification.type})`);
+      this.logger.info('Request routed to backend', {
+        requestModel: request.model,
+        routedModel: routing.model,
+        rule: routing.rule,
+        complexity: routing.classification?.complexity,
+        type: routing.classification?.type,
+        agentId: metadata.agentId,
+        sessionId: metadata.sessionId,
+      });
 
       // 6. Forward to backend and stream response
       let assistantResponse = '';

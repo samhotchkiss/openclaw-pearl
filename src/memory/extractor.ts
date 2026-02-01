@@ -5,6 +5,7 @@
 
 import type { MemoryType } from './store.js';
 import { ScopeDetector, type ScopeContext } from './scope-detector.js';
+import { createLogger } from '../utils/logger.js';
 
 // ====== Types ======
 
@@ -129,6 +130,7 @@ Rules:
  */
 class DefaultLLMProvider implements LLMProvider {
   private config: LLMProviderConfig;
+  private logger = createLogger('memory-extractor');
 
   constructor(config: LLMProviderConfig = {}) {
     this.config = {
@@ -141,7 +143,11 @@ class DefaultLLMProvider implements LLMProvider {
   async extract(_message: string): Promise<ExtractionResult> {
     // In a real implementation, this would call the configured LLM
     // For now, return empty (production implementation would go here)
-    console.log(`[DefaultLLMProvider] Would call ${this.config.provider}/${this.config.model}`);
+    this.logger.debug('LLM extraction placeholder called', {
+      provider: this.config.provider,
+      model: this.config.model,
+      message: 'Would extract memories in production implementation'
+    });
     return { memories: [] };
   }
 }
