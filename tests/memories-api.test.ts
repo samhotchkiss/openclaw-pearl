@@ -55,7 +55,8 @@ describe('Memory API Endpoints', () => {
 
   beforeEach(async () => {
     const config = createTestConfig();
-    server = await createServer(config);
+    server = await createServer({ pearlConfig: config });
+    await server.listen({ port: 8081, host: '127.0.0.1' });
     baseUrl = `http://127.0.0.1:8081`;
   });
 
@@ -69,9 +70,14 @@ describe('Memory API Endpoints', () => {
     it('should return empty memories list for new agent', async () => {
       const response = await fetch(`${baseUrl}/v1/memories?agent=test-agent`);
       
+      // Debug: Print response body 
+      const responseBody = await response.text();
+      console.log('Response status:', response.status);
+      console.log('Response body:', responseBody);
+      
       expect(response.status).toBe(200);
       
-      const data = await response.json();
+      const data = JSON.parse(responseBody);
       expect(data).toMatchObject({
         memories: [],
         total: 0,
