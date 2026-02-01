@@ -575,6 +575,77 @@ export class Pearl {
   }
 
   /**
+   * Memory Management API Methods
+   */
+  
+  async getMemories(agentId: string, options: { limit?: number; offset?: number; search?: string } = {}): Promise<ScoredMemory[]> {
+    if (!this.memoryStore) {
+      throw new Error('Memory store not initialized');
+    }
+
+    const { limit = 50, offset = 0, search } = options;
+    
+    if (search) {
+      // Use retrieval for search queries
+      if (!this.retriever) {
+        throw new Error('Memory retriever not initialized');
+      }
+      return await this.retriever.retrieve(search, agentId);
+    }
+    
+    // For simple listing, search with empty query to get all memories
+    return await this.memoryStore.search(agentId, '', { limit, offset });
+  }
+  
+  async createMemory(data: { agentId: string; content: string; type: string; tags: string[] }): Promise<{ id: string; createdAt: string }> {
+    if (!this.memoryStore) {
+      throw new Error('Memory store not initialized');
+    }
+
+    const memory: ExtractedMemory = {
+      id: `mem_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      type: data.type as any,
+      content: data.content,
+      confidence: 1.0, // Manually created memories have high confidence
+      tags: data.tags,
+      agentId: data.agentId,
+      createdAt: new Date().toISOString(),
+    };
+
+    await this.memoryStore.store(memory);
+    
+    this.logger.info('Memory created manually', {
+      memoryId: memory.id,
+      agentId: data.agentId,
+      type: data.type,
+      tags: data.tags
+    });
+
+    return {
+      id: memory.id,
+      createdAt: memory.createdAt,
+    };
+  }
+  
+  async deleteMemory(memoryId: string): Promise<boolean> {
+    if (!this.memoryStore) {
+      throw new Error('Memory store not initialized');
+    }
+
+    // Check if memory exists first (for proper 404 handling)
+    const exists = this.memoryStore.get(memoryId);
+    if (!exists) {
+      return false;
+    }
+
+    this.memoryStore.delete(memoryId);
+    
+    this.logger.info('Memory deleted', { memoryId });
+    
+    return true;
+  }
+
+  /**
    * Graceful shutdown
    */
   async shutdown(): Promise<void> {

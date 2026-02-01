@@ -9,6 +9,7 @@ import { appendFileSync, mkdirSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { Pearl } from '../pearl.js';
+import { createLogger } from '../utils/logger.js';
 import type { ServerConfig, PearlConfig, ChatRequest } from '../types.js';
 
 // Structured request log for the watch CLI
@@ -468,6 +469,138 @@ export async function createServer(options: CreateServerOptions = {}): Promise<F
           message: error instanceof Error ? error.message : 'An error occurred during chat completion',
         },
       } satisfies ErrorResponse);
+    }
+  });
+
+  // Memory API Endpoints
+  
+  // GET /v1/memories - List memories for an agent
+  server.get('/v1/memories', async (request: FastifyRequest, reply: FastifyReply) => {
+    const query = request.query as any;
+    const agentId = query.agent;
+    
+    if (!agentId) {
+      return reply.status(400).send({
+        error: {
+          type: 'invalid_request_error',
+          message: 'Missing required parameter: agent',
+        },
+      });
+    }
+
+    const limit = Math.min(parseInt(query.limit) || 50, 100);
+    const offset = parseInt(query.offset) || 0;
+    const search = query.search;
+
+    try {
+      const memories = await pearl.getMemories(agentId, { limit, offset, search });
+      
+      return reply.send({
+        memories,
+        total: memories.length,
+        offset,
+        limit,
+      });
+    } catch (error) {
+      logger.error('Failed to get memories', { error, agentId });
+      return reply.status(500).send({
+        error: {
+          type: 'internal_error',
+          message: 'Failed to retrieve memories',
+        },
+      });
+    }
+  });
+
+  // POST /v1/memories - Create a new memory
+  server.post('/v1/memories', async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = request.body as any;
+    
+    // Validate required fields
+    if (!body.agent) {
+      return reply.status(400).send({
+        error: {
+          type: 'invalid_request_error',
+          message: 'Missing required field: agent',
+        },
+      });
+    }
+    
+    if (!body.content) {
+      return reply.status(400).send({
+        error: {
+          type: 'invalid_request_error',
+          message: 'Missing required field: content',
+        },
+      });
+    }
+
+    // Validate memory type
+    const validTypes = ['fact', 'preference', 'event', 'context'];
+    if (body.type && !validTypes.includes(body.type)) {
+      return reply.status(400).send({
+        error: {
+          type: 'invalid_request_error',
+          message: `Invalid memory type. Must be one of: ${validTypes.join(', ')}`,
+        },
+      });
+    }
+
+    try {
+      const memory = await pearl.createMemory({
+        agentId: body.agent,
+        content: body.content,
+        type: body.type || 'fact',
+        tags: body.tags || [],
+      });
+      
+      return reply.status(201).send({
+        id: memory.id,
+        created: memory.createdAt,
+        agent: body.agent,
+        content: body.content,
+        type: body.type || 'fact',
+        tags: body.tags || [],
+      });
+    } catch (error) {
+      logger.error('Failed to create memory', { error, body });
+      return reply.status(500).send({
+        error: {
+          type: 'internal_error',
+          message: 'Failed to create memory',
+        },
+      });
+    }
+  });
+
+  // DELETE /v1/memories/:id - Delete a memory
+  server.delete('/v1/memories/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+    const { id } = request.params as { id: string };
+    
+    try {
+      const deleted = await pearl.deleteMemory(id);
+      
+      if (!deleted) {
+        return reply.status(404).send({
+          error: {
+            type: 'not_found_error',
+            message: 'Memory not found',
+          },
+        });
+      }
+      
+      return reply.send({
+        deleted: true,
+        id,
+      });
+    } catch (error) {
+      logger.error('Failed to delete memory', { error, memoryId: id });
+      return reply.status(500).send({
+        error: {
+          type: 'internal_error',
+          message: 'Failed to delete memory',
+        },
+      });
     }
   });
 
