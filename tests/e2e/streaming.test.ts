@@ -39,7 +39,7 @@ vi.mock('../../src/memory/embeddings.js', async () => {
   };
 });
 
-// Mock backends with configurable streaming behavior
+// Configure mock backend behavior through test helpers
 let mockStreamConfig = {
   chunks: ['Hello', ' ', 'World', '!'],
   delayMs: 0,
@@ -47,87 +47,15 @@ let mockStreamConfig = {
   errorAtChunk: -1,
 };
 
-vi.mock('../../src/backends/index.js', () => {
-  return {
-    createBackendClient: vi.fn().mockReturnValue({
-      chat: async function* (request: any) {
-        const startTime = Date.now();
-        
-        for (let i = 0; i < mockStreamConfig.chunks.length; i++) {
-          // Check if we should error at this chunk
-          if (mockStreamConfig.shouldError && i === mockStreamConfig.errorAtChunk) {
-            throw new Error('Backend stream error');
-          }
-
-          // Add delay if configured
-          if (mockStreamConfig.delayMs > 0) {
-            await new Promise(resolve => setTimeout(resolve, mockStreamConfig.delayMs));
-          }
-
-          const isLast = i === mockStreamConfig.chunks.length - 1;
-          const chunk: ChatChunk = {
-            id: `chunk-${i}`,
-            object: 'chat.completion.chunk',
-            created: Math.floor(Date.now() / 1000),
-            model: request.model,
-            choices: [{
-              index: 0,
-              delta: { 
-                content: mockStreamConfig.chunks[i],
-                ...(i === 0 ? { role: 'assistant' } : {})
-              },
-              finishReason: isLast ? 'stop' : null,
-            }],
-          };
-
-          streamDelays.push(Date.now() - startTime);
-          yield chunk;
-        }
-      },
-      models: vi.fn().mockResolvedValue([]),
-    }),
-  };
-});
-
 describe('E2E: SSE Streaming', () => {
   let pearl: Pearl;
 
-  const createConfig = (): PearlConfig => ({
-    server: { port: 8080, host: '0.0.0.0' },
-    memory: { store: 'sqlite', path: ':memory:' },
-    extraction: {
-      enabled: false,
-      model: 'ollama/llama3.2:3b',
-      async: false,
-      minConfidence: 0.7,
-      extractFromAssistant: false,
-      dedupWindowSeconds: 300,
-    },
-    embedding: {
-      provider: 'ollama',
-      model: 'nomic-embed-text',
-      dimensions: 768,
-    },
-    retrieval: {
-      maxMemories: 10,
-      minSimilarity: 0.7,
-      tokenBudget: 500,
-      recencyBoost: true,
-    },
-    routing: {
-      classifier: 'ollama/llama3.2:3b',
-      defaultModel: 'mock/test-model',
-      rules: [{
-        name: 'default',
-        match: { default: true },
-        model: 'mock/test-model',
-        priority: 1,
-      }],
-    },
-    backends: {
-      mock: { enabled: true },
-    },
-  });
+  const createConfig = (): PearlConfig => {
+    const config = createTestConfig();
+    // Disable extraction for streaming tests
+    config.extraction.enabled = false;
+    return config;
+  };
 
   beforeEach(async () => {
     emittedChunks = [];
