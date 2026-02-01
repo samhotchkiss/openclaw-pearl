@@ -6,6 +6,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Pearl } from '../../src/pearl.js';
 import type { PearlConfig, ChatRequest, ChatChunk } from '../../src/types.js';
+import { createTestConfig, mockExternalServices } from '../setup/test-helpers.js';
 
 // Track chunks for verification
 let emittedChunks: ChatChunk[] = [];
