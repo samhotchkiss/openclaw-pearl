@@ -155,7 +155,7 @@ export class MemoryExtractor {
 
   constructor(config: LLMProviderConfig = {}, provider?: LLMProvider, scopeDetector?: ScopeDetector) {
     this.minConfidence = config.minConfidence ?? 0.7;
-    this.provider = provider ?? new DefaultLLMProvider(config);
+    this.provider = provider ?? createProvider(config);
     this.scopeDetector = scopeDetector ?? new ScopeDetector();
   }
 
