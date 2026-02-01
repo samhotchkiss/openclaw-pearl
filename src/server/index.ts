@@ -451,6 +451,7 @@ export async function createServer(options: CreateServerOptions = {}): Promise<F
           durationMs: duration,
           stream: false,
         });
+        // Note: classification data will appear in Pearl's stdout logs
 
         return reply.send(response);
       }

@@ -237,6 +237,7 @@ export class Pearl {
 
       // 5. Route to appropriate backend
       const routing = await this.routeRequest(augmentedRequest.messages, metadata.agentId);
+      console.log(`[Pearl] Routed: ${request.model} → ${routing.model} (rule: ${routing.rule}, complexity: ${routing.classification.complexity}, type: ${routing.classification.type})`);
 
       // 6. Forward to backend and stream response
       let assistantResponse = '';
@@ -244,6 +245,8 @@ export class Pearl {
         ...request,
         model: routing.model,
         messages: augmentedRequest.messages,
+        // Pass routing metadata for logging
+        _routing: routing,
       };
 
       for await (const chunk of this.forwardToBackend(routing.model, modifiedRequest)) {

@@ -56,7 +56,8 @@ export class RequestClassifier {
   ): Promise<RequestClassification> {
     // Extract the latest user message for classification
     const userMessage = this.getLatestUserMessage(messages);
-    const content = userMessage?.content?.trim() || '';
+    const rawContent = userMessage?.content?.trim() || '';
+    const content = this.extractUserText(rawContent);
 
     // Always do heuristic classification
     const heuristic = this.heuristicClassify(messages);
@@ -80,7 +81,9 @@ export class RequestClassifier {
    */
   private heuristicClassify(messages: Message[]): RequestClassification {
     const userMessage = this.getLatestUserMessage(messages);
-    const content = userMessage?.content?.trim() || '';
+    const rawContent = userMessage?.content?.trim() || '';
+    // Strip OpenClaw message envelope to get actual user text
+    const content = this.extractUserText(rawContent);
 
     // Detect sensitivity first (highest priority)
     const sensitiveResult = this.detectSensitive(content);
@@ -313,6 +316,39 @@ export class RequestClassifier {
     return messages
       .filter(m => m.role === 'user')
       .pop();
+  }
+
+  /**
+   * Extract the actual user text from OpenClaw's message envelope.
+   * OpenClaw wraps messages like:
+   *   "System: [timestamp] Slack message in #channel from User: actual text\n\n[Slack ...]"
+   * We want just "actual text" for classification purposes.
+   */
+  private extractUserText(content: string): string {
+    // Try to extract from OpenClaw Slack envelope format
+    // Pattern: "... from <Name>: <actual message>\n\n[Slack ..."
+    const slackPattern = /from\s+\w+(?:\s+\([^)]*\))?:\s*(.+?)(?:\n\n\[|$)/is;
+    const match = content.match(slackPattern);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+
+    // Try simpler pattern: last line before [Slack or [Telegram metadata
+    const metaPattern = /^(.*?)(?:\n\n?\[(?:Slack|Telegram|Discord|Signal))/s;
+    const metaMatch = content.match(metaPattern);
+    if (metaMatch) {
+      // Get the last meaningful line
+      const lines = metaMatch[1].split('\n').filter(l => l.trim());
+      if (lines.length > 0) {
+        const lastLine = lines[lines.length - 1];
+        // Strip "System: [timestamp] ..." prefix
+        const stripped = lastLine.replace(/^System:\s*\[[^\]]*\]\s*(?:Slack (?:message|DM) (?:in|from)\s+[^:]+:\s*)?/i, '');
+        if (stripped.trim()) return stripped.trim();
+      }
+    }
+
+    // No envelope detected, return as-is
+    return content;
   }
 
   /**
