@@ -4,6 +4,82 @@
 
 import { vi } from 'vitest';
 import type { PearlConfig } from '../../src/types.js';
+import type { BackendClient, ChatRequest, ChatChunk, Model } from '../../src/backends/types.js';
+
+/**
+ * Mock backend implementation for testing
+ */
+export class MockBackend implements BackendClient {
+  async* chat(request: ChatRequest): AsyncGenerator<ChatChunk> {
+    const messageId = 'test-' + Date.now();
+    const timestamp = Math.floor(Date.now() / 1000);
+    
+    // First chunk with role
+    yield {
+      id: messageId,
+      object: 'chat.completion.chunk',
+      created: timestamp,
+      model: request.model,
+      choices: [{
+        index: 0,
+        delta: { role: 'assistant' },
+        finishReason: null,
+      }],
+    };
+
+    // Content chunk
+    yield {
+      id: messageId,
+      object: 'chat.completion.chunk',
+      created: timestamp,
+      model: request.model,
+      choices: [{
+        index: 0,
+        delta: { content: 'This is a mock response for testing' },
+        finishReason: null,
+      }],
+    };
+
+    // Final chunk
+    yield {
+      id: messageId,
+      object: 'chat.completion.chunk',
+      created: timestamp,
+      model: request.model,
+      choices: [{
+        index: 0,
+        delta: {},
+        finishReason: 'stop',
+      }],
+      usage: {
+        promptTokens: 10,
+        completionTokens: 5,
+        totalTokens: 15,
+      },
+    };
+  }
+
+  async models(): Promise<Model[]> {
+    return [
+      {
+        id: 'mock/test-model',
+        object: 'model',
+        created: Date.now(),
+        ownedBy: 'mock',
+      },
+      {
+        id: 'pearl',
+        object: 'model',
+        created: Date.now(),
+        ownedBy: 'pearl',
+      },
+    ];
+  }
+
+  async health(): Promise<boolean> {
+    return true;
+  }
+}
 
 /**
  * Create a minimal test config for Pearl instances
@@ -45,6 +121,7 @@ export function createTestConfig(): PearlConfig {
       anthropic: { apiKey: 'mock-key' },
       openai: { apiKey: 'mock-key' },
       ollama: { baseUrl: 'http://localhost:11434' },
+      mock: { enabled: true }, // Enable mock backend for testing
     },
     logging: { level: 'error', file: '/dev/null' },
   };

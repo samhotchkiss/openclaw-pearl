@@ -1,12 +1,21 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { createServer } from '../src/server/index.js';
 import type { FastifyInstance } from 'fastify';
+import { createTestConfig, mockExternalServices } from './setup/test-helpers.js';
 
 describe('Pearl HTTP Server', () => {
   let server: FastifyInstance;
 
+  beforeEach(() => {
+    mockExternalServices();
+  });
+
   beforeAll(async () => {
-    server = await createServer({ port: 0, host: '127.0.0.1' });
+    const testConfig = createTestConfig();
+    server = await createServer({ 
+      serverConfig: { port: 0, host: '127.0.0.1' },
+      pearlConfig: testConfig 
+    });
     await server.ready();
   });
 
@@ -44,6 +53,9 @@ describe('Pearl HTTP Server', () => {
         },
       });
 
+      if (response.statusCode !== 200) {
+        console.log('Error response:', response.body);
+      }
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
 

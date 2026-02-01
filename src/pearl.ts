@@ -182,6 +182,17 @@ export class Pearl {
         }
       }
 
+      // Check if there's a mock backend configuration (for testing)
+      if (this.config.backends?.mock) {
+        // Import MockBackend from test helpers if available
+        try {
+          const { MockBackend } = await import('../tests/setup/test-helpers.js');
+          this.backends.set('mock', new MockBackend());
+        } catch (error) {
+          // Mock backend not available (probably not in test environment)
+        }
+      }
+
       // Initialize sunrise service if enabled
       if (this.config.sunrise?.enabled) {
         this.sunriseService = createSunriseService({
@@ -397,6 +408,9 @@ export class Pearl {
     }
     if (model.startsWith('openrouter/')) {
       return 'openrouter';
+    }
+    if (model.startsWith('mock/') || model === 'pearl') {
+      return 'mock';
     }
 
     // Default fallback

@@ -237,6 +237,7 @@ export async function createServer(options: CreateServerOptions = {}): Promise<F
     logger.debug('Models list requested');
     const models: ModelInfo[] = [
       { id: 'auto', object: 'model', owned_by: 'pearl' },
+      { id: 'pearl', object: 'model', owned_by: 'pearl' },
       { id: 'anthropic-max/claude-opus-4-20250514', object: 'model', owned_by: 'anthropic' },
       { id: 'anthropic-max/claude-sonnet-4-20250514', object: 'model', owned_by: 'anthropic' },
       { id: 'anthropic-max/claude-haiku-4-20250514', object: 'model', owned_by: 'anthropic' },
