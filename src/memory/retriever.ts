@@ -147,7 +147,14 @@ export class MemoryRetriever {
     const opts = this.mergeOptions(options);
 
     // 1. Embed the query
-    const queryEmbedding = await this.embeddings.embed(query);
+    let queryEmbedding: Float32Array;
+    try {
+      queryEmbedding = await this.embeddings.embed(query);
+    } catch (error) {
+      console.warn('Failed to generate embedding for query:', error);
+      // Return empty results when embedding fails
+      return [];
+    }
 
     // 2. Get all memories with embeddings for this agent
     const memories = this.store.query({
