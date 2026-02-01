@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { MemoryStore, type Memory, type MemoryInput, type MemoryQuery } from '../src/memory/store.js';
-import { unlinkSync, existsSync } from 'fs';
+import { unlinkSync, existsSync, rmSync } from 'fs';
 
 const TEST_DB_PATH = '/tmp/pearl-test-memories.db';
 
@@ -32,6 +32,29 @@ describe('MemoryStore', () => {
       const memStore = new MemoryStore(':memory:');
       expect(memStore).toBeDefined();
       memStore.close();
+    });
+
+    it('should create parent directory if it does not exist', () => {
+      const testPath = '/tmp/pearl-test-nonexistent-dir/memories.db';
+      
+      // Ensure the directory doesn't exist
+      if (existsSync('/tmp/pearl-test-nonexistent-dir')) {
+        rmSync('/tmp/pearl-test-nonexistent-dir', { recursive: true });
+      }
+
+      // This should not throw an error
+      const dirStore = new MemoryStore(testPath);
+      expect(dirStore).toBeDefined();
+      
+      // Verify the file was created
+      expect(existsSync(testPath)).toBe(true);
+      
+      dirStore.close();
+      
+      // Cleanup
+      if (existsSync('/tmp/pearl-test-nonexistent-dir')) {
+        rmSync('/tmp/pearl-test-nonexistent-dir', { recursive: true });
+      }
     });
   });
 

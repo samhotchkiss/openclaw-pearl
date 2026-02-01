@@ -5,6 +5,8 @@
 
 import Database from 'better-sqlite3';
 import { uuidv7 } from 'uuidv7';
+import { mkdirSync } from 'fs';
+import { dirname } from 'path';
 
 // Types
 export interface Memory {
@@ -185,6 +187,12 @@ export class MemoryStore {
   private db: Database.Database;
 
   constructor(dbPath: string = ':memory:') {
+    // Create parent directory if it doesn't exist (unless using in-memory database)
+    if (dbPath !== ':memory:') {
+      const parentDir = dirname(dbPath);
+      mkdirSync(parentDir, { recursive: true });
+    }
+    
     this.db = new Database(dbPath);
     this.initialize();
   }
