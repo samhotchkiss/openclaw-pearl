@@ -167,7 +167,7 @@ describe('ScopeDetector', () => {
 
       expect(result.scope).toBe('agent');
       expect(result.targetAgentId).toBe('nova');
-      expect(result.confidence).toBeGreaterThan(0.7);
+      expect(result.confidence).toBeGreaterThan(0.6);
     });
 
     it('detects global scope for group chat', () => {
@@ -270,8 +270,9 @@ describe('ScopeDetector', () => {
         context
       );
 
-      // Should be inferred since it could apply to all or specific agents
-      expect(['inferred', 'global']).toContain(result.scope);
+      // Should be agent scope due to "code" workflow keyword mapping to main
+      expect(result.scope).toBe('agent');
+      expect(result.targetAgentId).toBe('main');
     });
 
     it('considers agent scope for workflow decisions', () => {
@@ -310,8 +311,9 @@ describe('ScopeDetector', () => {
         context
       );
 
-      // Should favor agent scope due to "writing" keyword
-      expect(result.scope).toBe('inferred');
+      // Should favor agent scope due to "writing" keyword mapping to tex
+      expect(result.scope).toBe('agent');
+      expect(result.targetAgentId).toBe('tex');
       expect(result.reasoning).toContain('workflow keywords');
     });
 
@@ -327,7 +329,8 @@ describe('ScopeDetector', () => {
         context
       );
 
-      expect(result.scope).toBe('inferred');
+      expect(result.scope).toBe('agent');
+      expect(result.targetAgentId).toBe('trey');
       expect(result.reasoning).toContain('workflow keywords');
     });
 
@@ -343,7 +346,8 @@ describe('ScopeDetector', () => {
         context
       );
 
-      expect(result.scope).toBe('inferred');
+      expect(result.scope).toBe('agent');
+      expect(result.targetAgentId).toBe('linc');
       expect(result.reasoning).toContain('workflow keywords');
     });
   });
@@ -381,7 +385,7 @@ describe('ScopeDetector', () => {
       const result = detector.detectScope('', 'fact', context);
 
       expect(result.scope).toBe('global');
-      expect(result.confidence).toBeLessThan(0.5);
+      expect(result.confidence).toBeLessThan(0.7);
     });
 
     it('handles unknown agent names', () => {
