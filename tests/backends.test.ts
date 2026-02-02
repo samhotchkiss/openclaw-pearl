@@ -99,7 +99,25 @@ describe('Anthropic Backend Client', () => {
   });
 
   it('should stream chat responses', async () => {
-    mockFetch.mockResolvedValueOnce(createMockStreamResponse(anthropicStreamChunks));
+    // Mock the Anthropic SDK's stream method directly
+    const mockStream = {
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'message_start', message: { id: 'msg_123', usage: { input_tokens: 20 } } };
+        yield { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Hello' } };
+        yield { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '! I\'m doing well.' } };
+        yield { type: 'message_delta', usage: { output_tokens: 10 } };
+        yield { type: 'message_stop' };
+      }
+    };
+
+    const mockClient = {
+      messages: {
+        stream: vi.fn().mockReturnValue(mockStream)
+      }
+    };
+
+    // Replace the internal client with our mock
+    (client as any).client = mockClient;
 
     const chunks: ChatChunk[] = [];
     for await (const chunk of client.chat(testChatRequest)) {
@@ -109,6 +127,7 @@ describe('Anthropic Backend Client', () => {
     expect(chunks.length).toBeGreaterThan(0);
     expect(chunks[0]).toHaveProperty('id');
     expect(chunks[0]).toHaveProperty('choices');
+    expect(mockClient.messages.stream).toHaveBeenCalled();
   });
 
   it('should return available models', async () => {
