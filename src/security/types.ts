@@ -5,9 +5,9 @@
 export type SecuritySeverity = 'SAFE' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 export type SecurityAction = 'allow' | 'log' | 'warn' | 'block';
 export type DetectionStrategy = 'regex' | 'heuristic' | 'llm';
-export type ThreatType = 
+export type ThreatType =
   | 'instruction_override'
-  | 'role_manipulation' 
+  | 'role_manipulation'
   | 'system_impersonation'
   | 'secret_extraction'
   | 'dangerous_command'
@@ -19,7 +19,9 @@ export type ThreatType =
   | 'heuristic_repetition'
   | 'heuristic_caps'
   | 'heuristic_homoglyph'
-  | 'heuristic_encoding';
+  | 'heuristic_encoding'
+  | 'admin_injection'
+  | 'rate_limit';
 
 export interface SecurityConfig {
   enabled: boolean;
@@ -100,6 +102,7 @@ export interface SecurityLoggingConfig {
   rotationSize?: string;
   maxFiles?: number;
   format?: 'json' | 'text';
+  fileOutput?: string;
 }
 
 export interface NotificationConfig {
@@ -109,6 +112,8 @@ export interface NotificationConfig {
   webhookUrl?: string;
   slackChannel?: string;
   emailTo?: string[];
+  webhook?: { url: string; secret?: string };
+  slack?: { channel: string; token?: string };
 }
 
 export type NotificationChannel = 'console' | 'file' | 'webhook' | 'slack' | 'email';
@@ -278,12 +283,13 @@ export interface RedactedItem {
 
 // Emergency bypass types
 export interface EmergencyBypass {
-  token: string;
+  token?: string;
   validUntil?: number;
   allowedUsers?: string[];
   description: string;
   usageCount?: number;
   maxUses?: number;
+  createdBy?: string;
 }
 
 // Configuration validation types

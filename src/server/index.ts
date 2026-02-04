@@ -9,8 +9,9 @@ import { appendFileSync, mkdirSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { Pearl } from '../pearl.js';
-import { createLogger } from '../utils/logger.js';
+// Note: Using local createLogger implementation for server-specific formatting
 import type { ServerConfig, PearlConfig, ChatRequest } from '../types.js';
+import type { ToolDefinition, ToolChoice, ToolCall } from '../backends/types.js';
 
 // Structured request log for the watch CLI
 const REQUEST_LOG_PATH = join(homedir(), '.pearl', 'requests.jsonl');
@@ -79,6 +80,8 @@ interface ChatCompletionRequest {
   stream?: boolean;
   temperature?: number;
   max_tokens?: number;
+  tools?: ToolDefinition[];
+  tool_choice?: ToolChoice;
   metadata?: {
     agent_id?: string;
     session_id?: string;
@@ -94,9 +97,10 @@ interface ChatCompletionResponse {
     index: number;
     message: {
       role: 'assistant';
-      content: string;
+      content: string | null;
+      tool_calls?: ToolCall[];
     };
-    finish_reason: 'stop' | 'length' | null;
+    finish_reason: 'stop' | 'length' | 'tool_calls' | null;
   }>;
   usage: {
     prompt_tokens: number;
@@ -304,6 +308,8 @@ export async function createServer(options: CreateServerOptions = {}): Promise<F
         stream: chatRequest.stream ?? false,
         temperature: chatRequest.temperature,
         maxTokens: chatRequest.max_tokens,
+        tools: chatRequest.tools,
+        tool_choice: chatRequest.tool_choice,
         metadata: {
           agentId,
           sessionId,
@@ -346,11 +352,12 @@ export async function createServer(options: CreateServerOptions = {}): Promise<F
               delta: {
                 role: c.delta?.role,
                 content: c.delta?.content,
+                tool_calls: c.delta?.tool_calls,
               },
               finish_reason: c.finishReason,
             })) ?? [],
           };
-          
+
           reply.raw.write(`data: ${JSON.stringify(sseChunk)}\n\n`);
         }
 
@@ -388,8 +395,9 @@ export async function createServer(options: CreateServerOptions = {}): Promise<F
         // Non-streaming response - collect all chunks
         let fullContent = '';
         let model = chatRequest.model;
-        let finishReason: 'stop' | 'length' | null = null;
+        let finishReason: 'stop' | 'length' | 'tool_calls' | null = null;
         let chunkUsage: any = null;
+        let collectedToolCalls: ToolCall[] = [];
 
         for await (const chunk of pearl.chatCompletion(pearlRequest)) {
           if (chunk.choices?.[0]?.delta?.content) {
@@ -399,10 +407,30 @@ export async function createServer(options: CreateServerOptions = {}): Promise<F
             model = chunk.model;
           }
           if (chunk.choices?.[0]?.finishReason) {
-            finishReason = chunk.choices[0].finishReason as 'stop' | 'length';
+            finishReason = chunk.choices[0].finishReason as 'stop' | 'length' | 'tool_calls';
           }
           if (chunk.usage) {
             chunkUsage = chunk.usage;
+          }
+          // Collect tool calls from chunks (they may come incrementally)
+          if (chunk.choices?.[0]?.delta?.tool_calls) {
+            for (const tc of chunk.choices[0].delta.tool_calls) {
+              const existingIndex = collectedToolCalls.findIndex(t => t.id === tc.id);
+              if (existingIndex >= 0) {
+                // Append to existing tool call arguments
+                collectedToolCalls[existingIndex].function.arguments += tc.function.arguments;
+              } else {
+                // Add new tool call
+                collectedToolCalls.push({
+                  id: tc.id,
+                  type: tc.type,
+                  function: {
+                    name: tc.function.name,
+                    arguments: tc.function.arguments,
+                  },
+                });
+              }
+            }
           }
         }
 
@@ -419,7 +447,8 @@ export async function createServer(options: CreateServerOptions = {}): Promise<F
               index: 0,
               message: {
                 role: 'assistant',
-                content: fullContent,
+                content: fullContent || null,
+                ...(collectedToolCalls.length > 0 && { tool_calls: collectedToolCalls }),
               },
               finish_reason: finishReason ?? 'stop',
             },

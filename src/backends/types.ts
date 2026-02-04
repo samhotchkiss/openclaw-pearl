@@ -5,7 +5,43 @@
 export interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
+  tool_calls?: ToolCall[];
+  tool_call_id?: string;
 }
+
+/**
+ * OpenAI-compatible tool definition
+ */
+export interface ToolDefinition {
+  type: 'function';
+  function: {
+    name: string;
+    description?: string;
+    parameters?: Record<string, unknown>;
+  };
+}
+
+/**
+ * Tool call returned by the model
+ */
+export interface ToolCall {
+  id: string;
+  index?: number;
+  type: 'function';
+  function: {
+    name: string;
+    arguments: string;
+  };
+}
+
+/**
+ * Tool choice configuration
+ */
+export type ToolChoice =
+  | 'auto'
+  | 'none'
+  | 'required'
+  | { type: 'function'; function: { name: string } };
 
 export interface ChatRequest {
   model: string;
@@ -14,6 +50,8 @@ export interface ChatRequest {
   maxTokens?: number;
   temperature?: number;
   topP?: number;
+  tools?: ToolDefinition[];
+  tool_choice?: ToolChoice;
   metadata?: {
     agentId?: string;
     sessionId?: string;
@@ -32,8 +70,9 @@ export interface ChatChunk {
     delta: {
       role?: string;
       content?: string;
+      tool_calls?: ToolCall[];
     };
-    finishReason?: 'stop' | 'length' | 'content_filter' | null;
+    finishReason?: 'stop' | 'length' | 'content_filter' | 'tool_calls' | null;
   }>;
   usage?: TokenUsage;
 }
@@ -47,9 +86,10 @@ export interface ChatResponse {
     index: number;
     message: {
       role: string;
-      content: string;
+      content: string | null;
+      tool_calls?: ToolCall[];
     };
-    finishReason: 'stop' | 'length' | 'content_filter';
+    finishReason: 'stop' | 'length' | 'content_filter' | 'tool_calls';
   }>;
   usage: TokenUsage;
 }

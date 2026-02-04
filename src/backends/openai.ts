@@ -3,15 +3,18 @@
  * Native OpenAI-compatible interface
  */
 
-import type { 
-  BackendClient, 
-  ChatRequest, 
-  ChatChunk, 
-  Model, 
+import type {
+  BackendClient,
+  ChatRequest,
+  ChatChunk,
+  Model,
   BackendConfig,
   ErrorRetryOptions,
   TokenUsage,
-  Message
+  Message,
+  ToolDefinition,
+  ToolChoice,
+  ToolCall
 } from './types.js';
 import { 
   BackendError, 
@@ -34,6 +37,8 @@ interface OpenAIRequest {
   frequency_penalty?: number;
   presence_penalty?: number;
   user?: string;
+  tools?: ToolDefinition[];
+  tool_choice?: ToolChoice;
 }
 
 interface OpenAIStreamChunk {
@@ -46,6 +51,7 @@ interface OpenAIStreamChunk {
     delta: {
       role?: string;
       content?: string;
+      tool_calls?: ToolCall[];
     };
     finish_reason?: string | null;
   }>;
@@ -65,7 +71,8 @@ interface OpenAIResponse {
     index: number;
     message: {
       role: string;
-      content: string;
+      content: string | null;
+      tool_calls?: ToolCall[];
     };
     finish_reason: string;
   }>;
@@ -199,7 +206,7 @@ export class OpenAIClient implements BackendClient {
     });
 
     const data = await response.json() as OpenAIResponse;
-    
+
     if ('error' in data) {
       throw this.handleError(data as any, response.status);
     }
@@ -210,7 +217,9 @@ export class OpenAIClient implements BackendClient {
       totalTokens: data.usage.total_tokens
     };
 
-    const content = data.choices[0]?.message?.content || '';
+    const message = data.choices[0]?.message;
+    const content = message?.content || null;
+    const toolCalls = message?.tool_calls;
 
     const chunk: ChatChunk = {
       id: data.id,
@@ -221,7 +230,8 @@ export class OpenAIClient implements BackendClient {
         index: 0,
         delta: {
           role: 'assistant',
-          content: content
+          content: content ?? undefined,
+          tool_calls: toolCalls
         },
         finishReason: this.mapFinishReason(data.choices[0]?.finish_reason)
       }],
@@ -268,8 +278,13 @@ export class OpenAIClient implements BackendClient {
   }
 
   private convertToOpenAIFormat(request: ChatRequest): OpenAIRequest {
+    // Strip provider prefix from model name (e.g., "openai/gpt-4" -> "gpt-4")
+    const modelName = request.model.includes('/')
+      ? request.model.split('/').slice(1).join('/')
+      : request.model;
+
     const openaiRequest: OpenAIRequest = {
-      model: request.model,
+      model: modelName,
       messages: normalizeMessages(request.messages),
       stream: request.stream !== false, // Default to streaming
       ...this.config.defaultParams
@@ -290,6 +305,16 @@ export class OpenAIClient implements BackendClient {
     // Add user ID if provided in metadata
     if (request.metadata?.agentId) {
       openaiRequest.user = request.metadata.agentId;
+    }
+
+    // Add tools if provided
+    if (request.tools && request.tools.length > 0) {
+      openaiRequest.tools = request.tools;
+    }
+
+    // Add tool_choice if provided
+    if (request.tool_choice !== undefined) {
+      openaiRequest.tool_choice = request.tool_choice;
     }
 
     return openaiRequest;
@@ -358,7 +383,7 @@ export class OpenAIClient implements BackendClient {
     }
   }
 
-  private mapFinishReason(reason: string | null | undefined): 'stop' | 'length' | 'content_filter' | null {
+  private mapFinishReason(reason: string | null | undefined): 'stop' | 'length' | 'content_filter' | 'tool_calls' | null {
     switch (reason) {
       case 'stop':
         return 'stop';
@@ -367,6 +392,8 @@ export class OpenAIClient implements BackendClient {
         return 'length';
       case 'content_filter':
         return 'content_filter';
+      case 'tool_calls':
+        return 'tool_calls';
       default:
         return null;
     }

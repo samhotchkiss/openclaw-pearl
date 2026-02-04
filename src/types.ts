@@ -3,11 +3,14 @@
  */
 
 // Re-export types needed by Pearl class
-export type { 
-  ChatRequest, 
-  ChatChunk, 
-  Message, 
-  BackendClient 
+export type {
+  ChatRequest,
+  ChatChunk,
+  Message,
+  BackendClient,
+  ToolDefinition,
+  ToolCall,
+  ToolChoice
 } from './backends/types.js';
 export type { 
   ScoredMemory 
@@ -102,11 +105,17 @@ export interface MatchConditions {
   estimatedTokens?: string;
 }
 
+export interface MockConfig {
+  enabled: boolean;
+  defaultParams?: Record<string, unknown>;
+}
+
 export interface BackendsConfig {
   anthropic?: ProviderConfig;
   openai?: ProviderConfig;
   ollama?: OllamaConfig;
   openrouter?: ProviderConfig;
+  mock?: MockConfig;
 }
 
 export interface ProviderConfig {
